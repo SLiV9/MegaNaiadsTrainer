@@ -1,11 +1,12 @@
 #include <iostream>
-#include <unordered_map>
 #include <chrono>
 #ifdef _MSC_VER
 #include <direct.h>
 #else
 #include <sys/stat.h>
 #endif
+
+#include "trainer.hpp"
 
 static uint64_t currentMilliseconds()
 {
@@ -20,5 +21,6 @@ int main(int argc, char* argv[])
 
 	srand(currentMilliseconds());
 
-	// TODO something
+	Trainer trainer;
+	trainer.train();
 }
