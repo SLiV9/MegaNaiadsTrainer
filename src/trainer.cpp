@@ -11,7 +11,7 @@
 
 struct Game
 {
-	std::array<std::shared_ptr<Brain>, 4> brains;
+	std::array<Trainer::Player, 4> players;
 };
 
 Trainer::Trainer() :
@@ -25,35 +25,62 @@ void Trainer::playRound()
 {
 	auto start = std::chrono::high_resolution_clock::now();
 	size_t count = 0;
-	size_t skip = 100;
-
     std::random_device rd;
     std::mt19937 rng(rd());
 
-	std::vector<Game> games;
-	games.reserve(_brains.size() * _brains.size()
-		* _brains.size() / (1 + skip) * _brains.size() / (1 + skip));
-
-	for (size_t i = 0; i < _brains.size(); i++)
+	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
-		for (size_t j = i + 1; j < _brains.size(); j++)
+		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
-			for (size_t u = j + 1 + (rand() % skip);
-				u < _brains.size();
-				u += 1 + (rand() % skip))
+			_brainsPerPersonality[p][i].relativeGameOffset = 0;
+		}
+	}
+
+	std::vector<Game> games;
+	size_t numGamesPerBrain = 1000;
+	games.resize(NUM_BRAINS_PER_PERSONALITY * numGamesPerBrain);
+
+	for (Game& game : games)
+	{
+		assert(NUM_PERSONALITIES == 4);
+		for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+		{
+			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
+			game.players[p] = _brainsPerPersonality[p][i];
+			_brainsPerPersonality[p][i].relativeGameOffset += 1;
+		}
+		std::shuffle(game.players.begin(), game.players.end(), rng);
+	}
+
+	auto gameStateTensor = torch::zeros(
+		games.size() * NUM_STATE_SETS * NUM_CARDS,
+		torch::TensorOptions().dtype(torch::kFloat));
+	if (ENABLE_CUDA)
+	{
+		gameStateTensor = gameStateTensor.contiguous().to(torch::kCUDA,
+			torch::kHalf);
+	}
+
+	std::array<std::array<torch::Tensor, NUM_BRAINS_PER_PERSONALITY>,
+		NUM_PERSONALITIES> gameViewsPerPersonality;
+
+	std::cout << "Playing " << games.size() << " games..." << std::endl;
+	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+	{
+		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
+		{
+			size_t n = _brainsPerPersonality[p][i].relativeGameOffset;
+			std::cout << char('A' + p) << i << ""
+				" plays " << n << " games" << std::endl;
+
+			auto& viewTensor = gameViewsPerPersonality[p][i];
+			viewTensor = torch::zeros(
+				n * NUM_VIEW_SETS * NUM_CARDS,
+				torch::TensorOptions().dtype(torch::kFloat));
+			if (ENABLE_CUDA)
 			{
-				for (size_t v = u + 1 + (rand() % skip);
-					v < _brains.size();
-					v += 1 + (rand() % skip))
-				{
-					games.emplace_back();
-					Game& game = games.back();
-					game.brains[0] = _brains[i];
-					game.brains[1] = _brains[j];
-					game.brains[2] = _brains[u];
-					game.brains[3] = _brains[v];
-					std::shuffle(game.brains.begin(), game.brains.end(), rng);
-				}
+				viewTensor = viewTensor.contiguous().to(torch::kCUDA,
+					torch::kHalf);
 			}
 		}
 	}
@@ -75,11 +102,11 @@ void Trainer::train()
 {
 	auto start = std::chrono::high_resolution_clock::now();
 
-	if (_brains.size() == 0)
+	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
-		for (size_t i = 0; i < 1000; i++)
+		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
-			_brains.push_back(std::make_shared<Brain>());
+			_brainsPerPersonality[p][i].brain = std::make_shared<Brain>();
 		}
 	}
 

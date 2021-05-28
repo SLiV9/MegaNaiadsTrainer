@@ -8,7 +8,7 @@
 
 Module::Module() :
 	_fc1(register_module("fc1", torch::nn::Linear(
-		NUM_CHANNELS * NUM_CARDS,
+		NUM_VIEW_SETS * NUM_CARDS,
 		INNER_SIZE))),
 	_fc2(register_module("fc2", torch::nn::Linear(
 		INNER_SIZE,

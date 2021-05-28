@@ -23,4 +23,6 @@ int main(int argc, char* argv[])
 
 	Trainer trainer;
 	trainer.train();
+
+	std::cout << std::endl << "Done!" << std::endl;
 }
