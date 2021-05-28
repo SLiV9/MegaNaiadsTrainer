@@ -9,9 +9,15 @@
 #include "brain.hpp"
 
 
+struct Player
+{
+	std::shared_ptr<Brain> brain;
+	size_t relativeGameOffset;
+};
+
 struct Game
 {
-	std::array<Trainer::Player, 4> players;
+	std::array<Player, NUM_SEATS> players;
 };
 
 Trainer::Trainer() :
@@ -25,14 +31,17 @@ void Trainer::playRound()
 {
 	auto start = std::chrono::high_resolution_clock::now();
 	size_t count = 0;
-    std::random_device rd;
-    std::mt19937 rng(rd());
+	std::random_device rd;
+	std::mt19937 rng(rd());
 
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
-			_brainsPerPersonality[p][i].relativeGameOffset = 0;
+			for (size_t s = 0; s < NUM_SEATS; s++)
+			{
+				_brainsPerPersonality[p][i]->numGamesPerSeat[s] = 0;
+			}
 		}
 	}
 
@@ -42,14 +51,19 @@ void Trainer::playRound()
 
 	for (Game& game : games)
 	{
-		assert(NUM_PERSONALITIES == 4);
+		assert(NUM_PERSONALITIES == NUM_SEATS);
 		for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 		{
 			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
-			game.players[p] = _brainsPerPersonality[p][i];
-			_brainsPerPersonality[p][i].relativeGameOffset += 1;
+			game.players[p].brain = _brainsPerPersonality[p][i];
 		}
 		std::shuffle(game.players.begin(), game.players.end(), rng);
+		for (size_t s = 0; s < NUM_SEATS; s++)
+		{
+			game.players[s].relativeGameOffset =
+				game.players[s].brain->numGamesPerSeat[s];
+			game.players[s].brain->numGamesPerSeat[s] += 1;
+		}
 	}
 
 	auto gameStateTensor = torch::zeros(
@@ -61,31 +75,68 @@ void Trainer::playRound()
 			torch::kHalf);
 	}
 
-	std::array<std::array<torch::Tensor, NUM_BRAINS_PER_PERSONALITY>,
-		NUM_PERSONALITIES> gameViewsPerPersonality;
-
 	std::cout << "Playing " << games.size() << " games..." << std::endl;
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
-			size_t n = _brainsPerPersonality[p][i].relativeGameOffset;
-			std::cout << char('A' + p) << i << ""
-				" plays " << n << " games" << std::endl;
-
-			auto& viewTensor = gameViewsPerPersonality[p][i];
-			viewTensor = torch::zeros(
-				n * NUM_VIEW_SETS * NUM_CARDS,
-				torch::TensorOptions().dtype(torch::kFloat));
-			if (ENABLE_CUDA)
+			auto& brain = _brainsPerPersonality[p][i];
+			for (size_t s = 0; s < NUM_SEATS; s++)
 			{
-				viewTensor = viewTensor.contiguous().to(torch::kCUDA,
-					torch::kHalf);
+				size_t n = brain->numGamesPerSeat[s];
+
+				if (s == 0)
+				{
+					std::cout << char('A' + p) << i << ""
+						" plays";
+				}
+				else
+				{
+					std::cout << ",";
+				}
+				std::cout << ""
+					" " << n << " games"
+					" from seat " << s << "";
+				if (s + 1 == NUM_SEATS)
+				{
+					std::cout << std::endl;
+				}
+
+				auto& viewTensor = brain->viewTensorPerSeat[s];
+				viewTensor = torch::zeros(
+					n * NUM_VIEW_SETS * NUM_CARDS,
+					torch::TensorOptions().dtype(torch::kFloat));
+				if (ENABLE_CUDA)
+				{
+					viewTensor = viewTensor.contiguous().to(torch::kCUDA,
+						torch::kHalf);
+				}
 			}
 		}
 	}
 
-	// TODO play the games
+	size_t maxTurnsPerPlayer = 20;
+	for (size_t t = 0; t < maxTurnsPerPlayer; t++)
+	{
+		for (size_t s = 0; s < NUM_SEATS; s++)
+		{
+			std::cout << "Evaluating turn " << (t * NUM_SEATS + s) << ""
+				" (seat " << s << ")"
+				"..." << std::endl;
+
+			// Let all brains evaluate their positions.
+			for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+			{
+				for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
+				{
+					_brainsPerPersonality[p][i]->evaluate(s);
+				}
+			}
+
+			// Use the results to change the game state.
+			// TODO
+		}
+	}
 
 	// Timing:
 	{
@@ -106,7 +157,7 @@ void Trainer::train()
 	{
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
-			_brainsPerPersonality[p][i].brain = std::make_shared<Brain>();
+			_brainsPerPersonality[p][i] = std::make_shared<Brain>();
 		}
 	}
 

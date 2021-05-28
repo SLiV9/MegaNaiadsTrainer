@@ -13,17 +13,10 @@ class Brain;
 
 class Trainer
 {
-public:
-	struct Player
-	{
-		std::shared_ptr<Brain> brain;
-		size_t relativeGameOffset;
-	};
-
 private:
 	std::time_t _startTime;
 	std::array<
-		std::array<Player, NUM_BRAINS_PER_PERSONALITY>,
+		std::array<std::shared_ptr<Brain>, NUM_BRAINS_PER_PERSONALITY>,
 		NUM_PERSONALITIES> _brainsPerPersonality;
 	size_t _round;
 
