@@ -29,3 +29,11 @@
 
 # Log files
 *.log
+
+# CMake
+/cmake
+/build
+
+# VS
+/.vs
+/out
