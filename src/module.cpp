@@ -20,7 +20,7 @@ Module::Module() :
 		INNER_SIZE,
 		INNER_SIZE))),
 	_fc5(register_module("fc5", torch::nn::Linear(
-		ACTION_SIZE * 2,
+		INNER_SIZE,
 		ACTION_SIZE)))
 {
 	// We do not use the module's training mode for evolutionary training.
@@ -50,14 +50,13 @@ Module& Module::operator=(Module&& other)
 
 // We prevent calling the forward functions of the underlying modules so we can
 // declare this function const and thus guarantee it is thread-safe.
-torch::Tensor Module::forward(torch::Tensor& s) const
+torch::Tensor Module::forward(const torch::Tensor& input) const
 {
-	s = torch::relu(torch::linear(s, _fc1->weight, _fc1->bias));
+	torch::Tensor s;
+	s = torch::relu(torch::linear(input, _fc1->weight, _fc1->bias));
 	s = torch::relu(torch::linear(s, _fc2->weight, _fc2->bias));
 	s = torch::relu(torch::linear(s, _fc3->weight, _fc3->bias));
 	s = torch::relu(torch::linear(s, _fc4->weight, _fc4->bias));
-
-	torch::Tensor pi = torch::linear(s, _fc5->weight, _fc5->bias);
-
-	return torch::sigmoid(pi);
+	s = torch::sigmoid(torch::linear(s, _fc5->weight, _fc5->bias));
+	return s;
 }

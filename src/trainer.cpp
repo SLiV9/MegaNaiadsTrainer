@@ -67,7 +67,7 @@ void Trainer::playRound()
 	}
 
 	auto gameStateTensor = torch::zeros(
-		games.size() * NUM_STATE_SETS * NUM_CARDS,
+		{int(games.size()), int(NUM_STATE_SETS * NUM_CARDS)},
 		torch::TensorOptions().dtype(torch::kFloat));
 	if (ENABLE_CUDA)
 	{
@@ -104,7 +104,7 @@ void Trainer::playRound()
 
 				auto& viewTensor = brain->viewTensorPerSeat[s];
 				viewTensor = torch::zeros(
-					n * NUM_VIEW_SETS * NUM_CARDS,
+					{int(n), int(NUM_VIEW_SETS * NUM_CARDS)},
 					torch::TensorOptions().dtype(torch::kFloat));
 				if (ENABLE_CUDA)
 				{
