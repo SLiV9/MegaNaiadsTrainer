@@ -27,5 +27,5 @@ public:
 		*this = Module();
 	}
 
-	torch::Tensor forward(const torch::Tensor& s) const;
+	void forward(const torch::Tensor& i, torch::Tensor& o) const;
 };

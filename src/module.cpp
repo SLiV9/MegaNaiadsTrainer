@@ -3,7 +3,6 @@
 #include "const.hpp"
 
 
-#define ACTION_SIZE NUM_CARDS
 #define INNER_SIZE 500
 
 Module::Module() :
@@ -48,15 +47,11 @@ Module& Module::operator=(Module&& other)
 	return *this;
 }
 
-// We prevent calling the forward functions of the underlying modules so we can
-// declare this function const and thus guarantee it is thread-safe.
-torch::Tensor Module::forward(const torch::Tensor& input) const
+void Module::forward(const torch::Tensor& input, torch::Tensor& s) const
 {
-	torch::Tensor s;
 	s = torch::relu(torch::linear(input, _fc1->weight, _fc1->bias));
 	s = torch::relu(torch::linear(s, _fc2->weight, _fc2->bias));
 	s = torch::relu(torch::linear(s, _fc3->weight, _fc3->bias));
 	s = torch::relu(torch::linear(s, _fc4->weight, _fc4->bias));
 	s = torch::sigmoid(torch::linear(s, _fc5->weight, _fc5->bias));
-	return s;
 }

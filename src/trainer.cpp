@@ -13,11 +13,25 @@ struct Player
 {
 	std::shared_ptr<Brain> brain;
 	size_t relativeGameOffset;
+	bool hasPassed = false;
 };
 
 struct Game
 {
 	std::array<Player, NUM_SEATS> players;
+
+	size_t numPassed() const
+	{
+		size_t count = 0;
+		for (size_t s = 0; s < NUM_SEATS; s++)
+		{
+			if (players[s].hasPassed)
+			{
+				count += 1;
+			}
+		}
+		return count;
+	}
 };
 
 Trainer::Trainer() :
@@ -36,7 +50,7 @@ inline void debugPrintCard(size_t card)
 		<< FACES[card % NUM_FACES_PER_SUIT];
 }
 
-inline void debugPrintGameState(const Game& /*game*/,
+inline void debugPrintGameState(const Game& game,
 	const torch::Tensor& stateTensor)
 {
 	torch::Tensor stateTensorCPU = stateTensor.to(torch::kCPU,
@@ -68,6 +82,10 @@ inline void debugPrintGameState(const Game& /*game*/,
 				}
 				std::cout << " ";
 			}
+		}
+		if (game.players[s].hasPassed)
+		{
+			std::cout << " <passed>";
 		}
 		std::cout << std::endl;
 	}
@@ -157,6 +175,122 @@ inline void assertCorrectGameState(const Game& game,
 				}
 			}
 		}
+	}
+}
+
+inline void updateGameState(Game& game,
+	torch::Tensor& stateTensor, size_t activeSeat)
+{
+	if (game.players[activeSeat].hasPassed)
+	{
+		return;
+	}
+
+	torch::Tensor stateTensorCPU = stateTensor.to(torch::kCPU,
+		torch::kFloat);
+	const float* state = stateTensorCPU.data_ptr<float>();
+
+	auto& brain = game.players[activeSeat].brain;
+	size_t offset = game.players[activeSeat].relativeGameOffset;
+	auto& outputTensor = brain->outputTensorPerSeat[activeSeat][offset];
+	torch::Tensor outputTensorCPU = outputTensor.to(torch::kCPU,
+		torch::kFloat);
+	const float* output = outputTensorCPU.data_ptr<float>();
+	float passWeight = std::max(0.0f, output[2 * NUM_CARDS]);
+	bool swapOnPass = false;
+	if (output[2 * NUM_CARDS + 1] > passWeight)
+	{
+		swapOnPass = true;
+		passWeight = output[2 * NUM_CARDS + 1];
+	}
+	size_t tableCard = 0;
+	float tableCardWeight = 0.0f;
+	size_t ownCard = 0;
+	float ownCardWeight = 0.0f;
+	for (size_t c = 0; c < NUM_CARDS; c++)
+	{
+		if (state[c] > 0.5
+			&& output[c] > passWeight
+			&& output[c] > tableCardWeight)
+		{
+			tableCard = c;
+			tableCardWeight = output[c];
+		}
+
+		if (state[(1 + activeSeat) * NUM_CARDS + c] > 0.5
+			&& output[NUM_CARDS + c] > passWeight
+			&& output[NUM_CARDS + c] > ownCardWeight)
+		{
+			ownCard = c;
+			ownCardWeight = output[NUM_CARDS + c];
+		}
+	}
+
+	if (tableCardWeight > passWeight && ownCardWeight > passWeight)
+	{
+		// Normal move.
+		stateTensor[tableCard] = 0;
+		stateTensor[ownCard] = 1;
+		stateTensor[(1 + activeSeat) * NUM_CARDS + tableCard] = 1;
+		stateTensor[(1 + activeSeat) * NUM_CARDS + ownCard] = 0;
+		stateTensor[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + tableCard] = 1;
+		stateTensor[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + ownCard] = 0;
+		for (size_t s = 0; s < NUM_SEATS; s++)
+		{
+			auto& viewTensor = game.players[s].brain->viewTensorPerSeat[s][
+				game.players[s].relativeGameOffset];
+			viewTensor[tableCard] = 0;
+			viewTensor[ownCard] = 1;
+			int relhand = (activeSeat - s + NUM_SEATS) % NUM_SEATS;
+			viewTensor[relhand * NUM_CARDS + tableCard] = 1;
+			viewTensor[relhand * NUM_CARDS + ownCard] = 0;
+			if (s == activeSeat)
+			{
+				viewTensor[(1 + NUM_SEATS) * NUM_CARDS + tableCard] = 1;
+				viewTensor[(1 + NUM_SEATS) * NUM_CARDS + ownCard] = 0;
+			}
+		}
+
+		// If all players but one have passed, the game ends after
+		// that player's next turn.
+		if (game.numPassed() == NUM_SEATS - 1)
+		{
+			game.players[activeSeat].hasPassed = true;
+		}
+	}
+	else
+	{
+		if (swapOnPass)
+		{
+			// Swap with the table.
+			for (size_t c = 0; c < NUM_CARDS; c++)
+			{
+				stateTensor[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + c] =
+					stateTensor[c];
+				auto swap = stateTensor[c];
+				stateTensor[c] = stateTensor[(1 + activeSeat) * NUM_CARDS + c];
+				stateTensor[(1 + activeSeat) * NUM_CARDS + c] = swap;
+			}
+			for (size_t s = 0; s < NUM_SEATS; s++)
+			{
+				auto& viewTensor = game.players[s].brain->viewTensorPerSeat[s][
+					game.players[s].relativeGameOffset];
+				int relhand = (activeSeat - s + NUM_SEATS) % NUM_SEATS;
+				for (size_t c = 0; c < NUM_CARDS; c++)
+				{
+					if (s == activeSeat)
+					{
+						viewTensor[(1 + NUM_SEATS) * NUM_CARDS + c] =
+							viewTensor[c];
+					}
+					auto swap = viewTensor[c];
+					viewTensor[ownCard] = viewTensor[relhand * NUM_CARDS + c];
+					viewTensor[relhand * NUM_CARDS + c] = swap;
+				}
+			}
+		}
+
+		game.players[activeSeat].hasPassed = true;
 	}
 }
 
@@ -298,8 +432,11 @@ void Trainer::playRound()
 
 	if (ENABLE_CUDA)
 	{
-		gameStateTensor = gameStateTensor.contiguous().to(torch::kCUDA,
-			torch::kHalf);
+		// I plan on moving updateGameState() to the GPU, but for now
+		// it is more efficient to leave it here.
+		//gameStateTensor = gameStateTensor.contiguous().to(torch::kCUDA,
+		//	torch::kHalf);
+
 		for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 		{
 			for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
@@ -327,9 +464,10 @@ void Trainer::playRound()
 
 	std::cout << "Playing " << games.size() << " games..." << std::endl;
 	size_t maxTurnsPerPlayer = 20;
-	for (size_t t = 0; t < maxTurnsPerPlayer; t++)
+	bool allFinished = false;
+	for (size_t t = 0; t < maxTurnsPerPlayer && !allFinished; t++)
 	{
-		for (size_t s = 0; s < NUM_SEATS; s++)
+		for (size_t s = 0; s < NUM_SEATS && !allFinished; s++)
 		{
 			std::cout << "Evaluating turn " << (t * NUM_SEATS + s) << ""
 				" (seat " << s << ")"
@@ -344,8 +482,20 @@ void Trainer::playRound()
 				}
 			}
 
+			std::cout << "Updating turn " << (t * NUM_SEATS + s) << ""
+				" (seat " << s << ")"
+				"..." << std::endl;
+
 			// Use the results to change the game state.
-			// TODO
+			allFinished = true;
+			for (size_t g = 0; g < games.size(); g++)
+			{
+				updateGameState(games[g], gameStateTensor[g], s);
+				if (games[g].numPassed() < NUM_SEATS)
+				{
+					allFinished = false;
+				}
+			}
 
 			// Verify some of the games.
 			for (size_t g = 0; g < games.size();

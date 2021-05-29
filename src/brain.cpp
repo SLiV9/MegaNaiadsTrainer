@@ -13,5 +13,5 @@ Brain::Brain() :
 void Brain::evaluate(size_t seat)
 {
 	assert(seat < NUM_SEATS);
-	_module->forward(viewTensorPerSeat[seat]);
+	_module->forward(viewTensorPerSeat[seat], outputTensorPerSeat[seat]);
 }

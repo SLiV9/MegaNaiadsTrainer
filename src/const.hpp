@@ -7,6 +7,7 @@ constexpr size_t NUM_CARDS = 32;
 constexpr size_t NUM_SUITS = 4;
 constexpr size_t NUM_FACES_PER_SUIT = NUM_CARDS / NUM_SUITS;
 constexpr size_t NUM_CARDS_PER_HAND = 3;
+constexpr size_t ACTION_SIZE = 2 * NUM_CARDS + 2;
 
 constexpr size_t NUM_PERSONALITIES = 4;
 constexpr size_t NUM_BRAINS_PER_PERSONALITY = 25;

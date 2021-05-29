@@ -18,6 +18,7 @@ private:
 public:
 	std::array<size_t, NUM_SEATS> numGamesPerSeat;
 	std::array<torch::Tensor, NUM_SEATS> viewTensorPerSeat;
+	std::array<torch::Tensor, NUM_SEATS> outputTensorPerSeat;
 
 public:
 	Brain();
