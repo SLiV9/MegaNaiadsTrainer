@@ -741,24 +741,25 @@ void Trainer::saveBrains()
 		}
 	}
 
+	std::ofstream list;
+	list.open(folder + "/round" + std::to_string(_round) + ".txt");
+
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
 			auto& brain = _brainsPerPersonality[p][i];
-			if (i == 0 || i == 1 || i == NUM_BRAINS_PER_PERSONALITY - 1)
 			{
 				std::string name;
 				name += brain->personality;
-				name += "_" + std::to_string(_round);
-				if (i == 0) name += "_best";
-				else if (i == 1) name += "_second";
-				else name += "_worst";
 				name += "_" + std::to_string(brain->serialNumber);
 				name += "_" + std::to_string(brain->motherNumber);
 				name += "_" + std::to_string(brain->fatherNumber);
-				std::string filepath = folder + "/" + name + ".png";
-				brain->saveScan(filepath);
+
+				brain->save(folder + "/" + name + ".pth.tar");
+				brain->saveScan(folder + "/" + name + ".png");
+
+				list << name << std::endl;
 			}
 		}
 	}
@@ -772,6 +773,58 @@ void Trainer::saveBrains()
 			"" << std::endl;
 		start = end;
 	}
+}
+
+void Trainer::resume(std::string session, size_t round)
+{
+	std::string folder = BRAIN_OUTPUT_FOLDER "/" + session;
+	std::string filename = folder + "/round" + std::to_string(round) + ".txt";
+
+	std::ifstream file(filename);
+	if (!file)
+	{
+		std::cerr << "Failed to open " << filename << std::endl;
+		throw std::runtime_error("Failed to open " + filename);
+	}
+	std::string line;
+	std::array<size_t, NUM_PERSONALITIES> countPerPersonality = { 0 };
+	while (std::getline(file, line))
+	{
+		if (line.empty())
+		{
+			continue;
+		}
+		std::string name = line;
+		std::stringstream strm = std::stringstream(line);
+		std::string personality;
+		if (!std::getline(strm, personality, '_')
+			|| personality.size() != 1
+			|| personality[0] < 'A'
+			|| personality[0] >= char('A' + NUM_PERSONALITIES))
+		{
+			std::cerr << "Ignoring '" << line << "'" << std::endl;
+			continue;
+		}
+		size_t p = personality[0] - 'A';
+		size_t i = countPerPersonality[p];
+		if (i >= NUM_BRAINS_PER_PERSONALITY)
+		{
+			std::cerr << "Ignoring excess for " << personality << std::endl;
+			continue;
+		}
+		_brainsPerPersonality[p][i] = std::make_shared<Brain>(personality[0]);
+		_brainsPerPersonality[p][i]->load(folder + "/" + name + ".pth.tar");
+		countPerPersonality[p] += 1;
+	}
+	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+	{
+		if (countPerPersonality[p] < NUM_BRAINS_PER_PERSONALITY)
+		{
+			std::cerr << "Adding brains for " << char('A' + p) << std::endl;
+		}
+	}
+
+	_round = round + 1;
 }
 
 void Trainer::train()
@@ -791,6 +844,7 @@ void Trainer::train()
 	{
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
+			if (_brainsPerPersonality[p][i]) continue;
 			char personality = char('A' + p);
 			_brainsPerPersonality[p][i] = std::make_shared<Brain>(personality);
 		}
@@ -814,7 +868,7 @@ void Trainer::train()
 
 		playRound();
 		sortBrains();
-		if (_round % 10 == 0)
+		if (_round % 25 == 0)
 		{
 			saveBrains();
 		}

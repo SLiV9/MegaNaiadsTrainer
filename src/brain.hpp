@@ -51,5 +51,8 @@ public:
 	Brain makeMutation(double deviationFactor) const;
 	Brain makeOffspringWith(const Brain& other) const;
 
+	void save(const std::string& filepath);
+	void load(const std::string& filepath);
+
 	void saveScan(const std::string& filepath);
 };

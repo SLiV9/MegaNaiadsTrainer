@@ -16,12 +16,25 @@ static uint64_t currentMilliseconds()
 
 void run(int argc, char* argv[])
 {
-	std::cout << "Press Enter to start:" << std::endl;
-	std::cin.ignore();
+	std::string session;
+	int round = 0;
+
+	std::cout << "Session to resume:" << std::endl;
+	std::cin >> session;
+
+	if (!session.empty())
+	{
+		std::cout << "Round to resume:" << std::endl;
+		std::cin >> round;
+	}
 
 	srand(currentMilliseconds());
 
 	Trainer trainer;
+	if (!session.empty())
+	{
+		trainer.resume(session, round);
+	}
 	trainer.train();
 
 	std::cout << std::endl << "Done!" << std::endl;

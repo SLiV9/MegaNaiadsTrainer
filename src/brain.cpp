@@ -3,6 +3,7 @@
 #include "libs/lodepng/lodepng.h"
 
 #include "module.hpp"
+#include "stateloader.hpp"
 
 
 // We are not backpropagating, so no need for gradient calculation.
@@ -106,6 +107,60 @@ Brain Brain::makeOffspringWith(const Brain& other) const
 	return Brain(personality, serialNumber, other.serialNumber, newModule);
 }
 
+void Brain::save(const std::string& filepath)
+{
+	if (!_module)
+	{
+		if (personality != 'D')
+		{
+			std::cerr << "missing module"
+				" for " << personality << serialNumber << ""
+				"" << std::endl;
+		}
+		return;
+	}
+
+	{
+		struct stat buffer;
+		if (stat(filepath.c_str(), &buffer) == 0)
+		{
+			std::cout << "Kept " << filepath << std::endl;
+			return;
+		}
+	}
+
+	save_state_dict(*_module, filepath);
+	std::cout << "Saved " << filepath << std::endl;
+}
+
+void Brain::load(const std::string& filepath)
+{
+	if (!_module)
+	{
+		if (personality != 'D')
+		{
+			std::cerr << "missing module"
+				" for " << personality << serialNumber << ""
+				"" << std::endl;
+		}
+		return;
+	}
+
+	{
+		struct stat buffer;
+		if (stat(filepath.c_str(), &buffer) != 0)
+		{
+			std::cerr << "no model in path " << filepath << std::endl;
+			throw std::runtime_error("no model in path " + filepath);
+		}
+	}
+
+	load_state_dict(*_module, filepath);
+	if (ENABLE_CUDA) _module->to(torch::kCUDA, torch::kHalf);
+	else _module->to(torch::kFloat);
+	std::cout << "Loaded " << filepath << std::endl;
+}
+
 inline uint8_t paletteIndexFromValue(float value, float multiplier)
 {
 	// Scale [-X, X] to [0, 1].
@@ -136,6 +191,15 @@ void Brain::saveScan(const std::string& filepath)
 				"" << std::endl;
 		}
 		return;
+	}
+
+	{
+		struct stat buffer;
+		if (stat(filepath.c_str(), &buffer) == 0)
+		{
+			std::cout << "Keeping scan " << filepath << std::endl;
+			return;
+		}
 	}
 
 	int margin = 10;

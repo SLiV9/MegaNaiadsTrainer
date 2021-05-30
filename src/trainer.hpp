@@ -35,5 +35,6 @@ private:
 	void saveBrains();
 
 public:
+	void resume(std::string session, size_t round);
 	void train();
 };
