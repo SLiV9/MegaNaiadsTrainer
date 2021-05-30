@@ -51,17 +51,13 @@ inline void debugPrintCard(size_t card)
 }
 
 inline void debugPrintGameState(const Game& game,
-	const torch::Tensor& stateTensor)
+	const uint8_t* state)
 {
-	torch::Tensor stateTensorCPU = stateTensor.to(torch::kCPU,
-		torch::kFloat);
-	const float* state = stateTensorCPU.data_ptr<float>();
-
 	std::cout << "----------------------" << std::endl;
 	std::cout << "Table: ";
 	for (size_t c = 0; c < NUM_CARDS; c++)
 	{
-		if (state[c] > 0.5)
+		if (state[c] > 0)
 		{
 			debugPrintCard(c);
 			std::cout << " ";
@@ -73,10 +69,10 @@ inline void debugPrintGameState(const Game& game,
 		std::cout << "Seat " << s << ": ";
 		for (size_t c = 0; c < NUM_CARDS; c++)
 		{
-			if (state[(1 + s) * NUM_CARDS + c] > 0.5)
+			if (state[(1 + s) * NUM_CARDS + c] > 0)
 			{
 				debugPrintCard(c);
-				if (state[(1 + NUM_SEATS + s) * NUM_CARDS + c] > 0.5)
+				if (state[(1 + NUM_SEATS + s) * NUM_CARDS + c] > 0)
 				{
 					std::cout << "*";
 				}
@@ -102,19 +98,15 @@ inline void debugPrintGameState(const Game& game,
 }
 
 inline void assertCorrectGameState(const Game& game,
-	const torch::Tensor& stateTensor)
+	const uint8_t* state)
 {
-	torch::Tensor stateTensorCPU = stateTensor.to(torch::kCPU,
-		torch::kFloat);
-	const float* state = stateTensorCPU.data_ptr<float>();
-
 	size_t numUsed = 0;
 	for (size_t c = 0; c < NUM_CARDS; c++)
 	{
 		bool isUsed = false;
 		for (size_t hand = 0; hand < NUM_SEATS + 1; hand++)
 		{
-			if (state[hand * NUM_CARDS + c] > 0.5)
+			if (state[hand * NUM_CARDS + c] > 0)
 			{
 				assert(!isUsed);
 				isUsed = true;
@@ -135,7 +127,7 @@ inline void assertCorrectGameState(const Game& game,
 		{
 			for (size_t hand = 0; hand < NUM_SEATS + 1; hand++)
 			{
-				if (state[hand * NUM_CARDS + c] < 0.5)
+				if (state[hand * NUM_CARDS + c] < 1)
 				{
 					size_t relhand = (hand > 0)
 						? (1 + ((hand - 1 + NUM_SEATS - s) % NUM_SEATS))
@@ -150,10 +142,10 @@ inline void assertCorrectGameState(const Game& game,
 				{
 					assert(view[relhand * NUM_CARDS + c] > 0.9);
 				}
-				float vis = state[(hand + NUM_SEATS) * NUM_CARDS + c];
+				bool vis = (state[(hand + NUM_SEATS) * NUM_CARDS + c] > 0);
 				if (relhand > 0)
 				{
-					if (vis > 0.5)
+					if (vis)
 					{
 						assert(view[relhand * NUM_CARDS + c] > 0.9);
 					}
@@ -164,7 +156,7 @@ inline void assertCorrectGameState(const Game& game,
 				}
 				if (relhand == 1)
 				{
-					if (vis > 0.5)
+					if (vis)
 					{
 						assert(view[(1 + NUM_SEATS) * NUM_CARDS + c] > 0.9);
 					}
@@ -179,16 +171,12 @@ inline void assertCorrectGameState(const Game& game,
 }
 
 inline void updateGameState(Game& game,
-	torch::Tensor& stateTensor, size_t activeSeat)
+	uint8_t* state, size_t activeSeat)
 {
 	if (game.players[activeSeat].hasPassed)
 	{
 		return;
 	}
-
-	torch::Tensor stateTensorCPU = stateTensor.to(torch::kCPU,
-		torch::kFloat);
-	const float* state = stateTensorCPU.data_ptr<float>();
 
 	auto& brain = game.players[activeSeat].brain;
 	size_t offset = game.players[activeSeat].relativeGameOffset;
@@ -209,7 +197,7 @@ inline void updateGameState(Game& game,
 	float ownCardWeight = 0.0f;
 	for (size_t c = 0; c < NUM_CARDS; c++)
 	{
-		if (state[c] > 0.5
+		if (state[c] > 0
 			&& output[c] > passWeight
 			&& output[c] > tableCardWeight)
 		{
@@ -217,7 +205,7 @@ inline void updateGameState(Game& game,
 			tableCardWeight = output[c];
 		}
 
-		if (state[(1 + activeSeat) * NUM_CARDS + c] > 0.5
+		if (state[(1 + activeSeat) * NUM_CARDS + c] > 0
 			&& output[NUM_CARDS + c] > passWeight
 			&& output[NUM_CARDS + c] > ownCardWeight)
 		{
@@ -229,12 +217,12 @@ inline void updateGameState(Game& game,
 	if (tableCardWeight > passWeight && ownCardWeight > passWeight)
 	{
 		// Normal move.
-		stateTensor[tableCard] = 0;
-		stateTensor[ownCard] = 1;
-		stateTensor[(1 + activeSeat) * NUM_CARDS + tableCard] = 1;
-		stateTensor[(1 + activeSeat) * NUM_CARDS + ownCard] = 0;
-		stateTensor[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + tableCard] = 1;
-		stateTensor[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + ownCard] = 0;
+		state[tableCard] = 0;
+		state[ownCard] = 1;
+		state[(1 + activeSeat) * NUM_CARDS + tableCard] = 1;
+		state[(1 + activeSeat) * NUM_CARDS + ownCard] = 0;
+		state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + tableCard] = 1;
+		state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + ownCard] = 0;
 		for (size_t s = 0; s < NUM_SEATS; s++)
 		{
 			auto& viewTensor = game.players[s].brain->viewTensorPerSeat[s][
@@ -265,11 +253,11 @@ inline void updateGameState(Game& game,
 			// Swap with the table.
 			for (size_t c = 0; c < NUM_CARDS; c++)
 			{
-				stateTensor[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + c] =
-					stateTensor[c];
-				auto swap = stateTensor[c];
-				stateTensor[c] = stateTensor[(1 + activeSeat) * NUM_CARDS + c];
-				stateTensor[(1 + activeSeat) * NUM_CARDS + c] = swap;
+				state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + c] =
+					state[c];
+				auto swap = state[c];
+				state[c] = state[(1 + activeSeat) * NUM_CARDS + c];
+				state[(1 + activeSeat) * NUM_CARDS + c] = swap;
 			}
 			for (size_t s = 0; s < NUM_SEATS; s++)
 			{
@@ -278,14 +266,24 @@ inline void updateGameState(Game& game,
 				int relhand = (activeSeat - s + NUM_SEATS) % NUM_SEATS;
 				for (size_t c = 0; c < NUM_CARDS; c++)
 				{
-					if (s == activeSeat)
+					if (state[c] > 0)
 					{
-						viewTensor[(1 + NUM_SEATS) * NUM_CARDS + c] =
-							viewTensor[c];
+						if (s == activeSeat)
+						{
+							viewTensor[(1 + NUM_SEATS) * NUM_CARDS + c] = 0;
+						}
+						viewTensor[c] = 1;
+						viewTensor[relhand * NUM_CARDS + c] = 0;
 					}
-					auto swap = viewTensor[c];
-					viewTensor[ownCard] = viewTensor[relhand * NUM_CARDS + c];
-					viewTensor[relhand * NUM_CARDS + c] = swap;
+					else if (state[(1 + activeSeat) * NUM_CARDS + c] > 0)
+					{
+						if (s == activeSeat)
+						{
+							viewTensor[(1 + NUM_SEATS) * NUM_CARDS + c] = 1;
+						}
+						viewTensor[c] = 0;
+						viewTensor[relhand * NUM_CARDS + c] = 1;
+					}
 				}
 			}
 		}
@@ -334,9 +332,12 @@ void Trainer::playRound()
 	}
 
 	// Zero-initialize the game state and the views.
-	auto gameStateTensor = torch::zeros(
-		{int(games.size()), int(NUM_STATE_SETS * NUM_CARDS)},
-		torch::TensorOptions().dtype(torch::kFloat));
+	std::vector<std::array<uint8_t, NUM_STATE_SETS * NUM_CARDS>> gameState;
+	gameState.resize(games.size());
+	for (size_t g = 0; g < games.size(); g++)
+	{
+		std::fill(gameState[g].begin(), gameState[g].end(), 0);
+	}
 
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
@@ -388,7 +389,7 @@ void Trainer::playRound()
 			{
 				assert(deckoffset < NUM_CARDS);
 				uint8_t card = deck[deckoffset++];
-				gameStateTensor[g][hand * NUM_CARDS + card] = 1;
+				gameState[g][hand * NUM_CARDS + card] = 1;
 				for (size_t s = 0; s < NUM_SEATS; s++)
 				{
 					if (hand > 0 && hand - 1 != s) continue;
@@ -415,9 +416,9 @@ void Trainer::playRound()
 	{
 		if (g == 0)
 		{
-			debugPrintGameState(games[g], gameStateTensor[g]);
+			debugPrintGameState(games[g], gameState[g].data());
 		}
-		assertCorrectGameState(games[g], gameStateTensor[g]);
+		assertCorrectGameState(games[g], gameState[g].data());
 	}
 
 	// Timing:
@@ -432,11 +433,6 @@ void Trainer::playRound()
 
 	if (ENABLE_CUDA)
 	{
-		// I plan on moving updateGameState() to the GPU, but for now
-		// it is more efficient to leave it here.
-		//gameStateTensor = gameStateTensor.contiguous().to(torch::kCUDA,
-		//	torch::kHalf);
-
 		for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 		{
 			for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
@@ -490,7 +486,7 @@ void Trainer::playRound()
 			allFinished = true;
 			for (size_t g = 0; g < games.size(); g++)
 			{
-				updateGameState(games[g], gameStateTensor[g], s);
+				updateGameState(games[g], gameState[g].data(), s);
 				if (games[g].numPassed() < NUM_SEATS)
 				{
 					allFinished = false;
@@ -503,9 +499,9 @@ void Trainer::playRound()
 			{
 				if (g == 0)
 				{
-					debugPrintGameState(games[g], gameStateTensor[g]);
+					debugPrintGameState(games[g], gameState[g].data());
 				}
-				assertCorrectGameState(games[g], gameStateTensor[g]);
+				assertCorrectGameState(games[g], gameState[g].data());
 			}
 		}
 	}
