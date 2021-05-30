@@ -14,6 +14,7 @@ struct Player
 	std::shared_ptr<Brain> brain;
 	size_t relativeGameOffset;
 	bool hasPassed = false;
+	int turnOfPass = -1;
 };
 
 struct Game
@@ -95,19 +96,22 @@ inline void debugPrintGameState(const Game& game,
 		}
 		std::cout << std::endl;
 	}
-	for (size_t i = 0; i < NUM_STATE_SETS * NUM_CARDS; i++)
+	if (false)
 	{
-		if (i > 0 && i % NUM_CARDS == 0)
+		for (size_t i = 0; i < NUM_STATE_SETS * NUM_CARDS; i++)
 		{
-			std::cout << std::endl;
+			if (i > 0 && i % NUM_CARDS == 0)
+			{
+				std::cout << std::endl;
+			}
+			else if (i > 0 && i % NUM_FACES_PER_SUIT == 0)
+			{
+				std::cout << "  ";
+			}
+			std::cout << int(state[i]) << " ";
 		}
-		else if (i > 0 && i % NUM_FACES_PER_SUIT == 0)
-		{
-			std::cout << "  ";
-		}
-		std::cout << int(state[i]) << " ";
+		std::cout << std::endl;
 	}
-	std::cout << std::endl;
 	std::cout << "----------------------" << std::endl;
 }
 
@@ -308,6 +312,8 @@ inline void tallyGameResult(const Game& game,
 			game.players[s].brain->numLosses += 1;
 		}
 		game.players[s].brain->totalHandValue += handValues[s];
+		game.players[s].brain->totalTurnsBeforePass +=
+			game.players[s].turnOfPass;
 	}
 }
 
@@ -364,26 +370,10 @@ void Trainer::playRound()
 			auto& brain = _brainsPerPersonality[p][i];
 			for (size_t s = 0; s < NUM_SEATS; s++)
 			{
-				if (s == 0)
-				{
-					std::cout << brain->personality << brain->serialNumber << ""
-						" plays";
-				}
-				else
-				{
-					std::cout << ",";
-				}
-				std::cout << ""
-					" " << brain->numGamesPerSeat[s] << " games"
-					" from seat " << s << "";
-				if (s + 1 == NUM_SEATS)
-				{
-					std::cout << std::endl;
-				}
-
 				brain->reset(s);
 			}
 			brain->numLosses = 0;
+			brain->totalTurnsBeforePass = 0;
 			brain->totalHandValue = 0;
 			brain->objectiveScore = 0;
 		}
@@ -429,7 +419,7 @@ void Trainer::playRound()
 		{
 			std::cout << "Preparing turn " << (t * NUM_SEATS + s) << ""
 				" (seat " << s << ")"
-				"..." << std::endl;
+				"...\t" << std::flush;
 
 			// Verify some of the games.
 			for (size_t g = 0; g < games.size();
@@ -437,6 +427,7 @@ void Trainer::playRound()
 			{
 				if (g == 0 && games[g].numPassed() < NUM_SEATS)
 				{
+					std::cout << std::endl;
 					debugPrintGameState(games[g], gameState[g].data());
 				}
 				assertCorrectGameState(games[g], gameState[g].data());
@@ -455,9 +446,7 @@ void Trainer::playRound()
 				}
 			}
 
-			std::cout << "Evaluating turn " << (t * NUM_SEATS + s) << ""
-				" (seat " << s << ")"
-				"..." << std::endl;
+			std::cout << "Evaluating...\t" << std::flush;
 
 			// Let all brains evaluate their positions.
 			for (size_t p = 0; p < NUM_PERSONALITIES; p++)
@@ -468,9 +457,7 @@ void Trainer::playRound()
 				}
 			}
 
-			std::cout << "Updating turn " << (t * NUM_SEATS + s) << ""
-				" (seat " << s << ")"
-				"..." << std::endl;
+			std::cout << "Updating...\t" << std::flush;
 
 			// Use the results to change the game state.
 			size_t numUnfinished = 0;
@@ -479,6 +466,11 @@ void Trainer::playRound()
 				updateGameState(games[g], gameState[g].data(), s);
 				if (games[g].numPassed() < NUM_SEATS)
 				{
+					if (games[g].players[s].hasPassed
+						&& games[g].players[s].turnOfPass < 0)
+					{
+						games[g].players[s].turnOfPass = t;
+					}
 					numUnfinished += 1;
 				}
 			}
@@ -486,6 +478,16 @@ void Trainer::playRound()
 
 			std::cout << "Still " << numUnfinished << " games"
 				" left unfinished." << std::endl;
+		}
+	}
+	for (size_t g = 0; g < games.size(); g ++)
+	{
+		for (size_t s = 0; s < NUM_SEATS; s++)
+		{
+			if (games[g].players[s].turnOfPass < 0)
+			{
+				games[g].players[s].turnOfPass = maxTurnsPerPlayer * NUM_SEATS;
+			}
 		}
 	}
 
@@ -556,7 +558,9 @@ void Trainer::sortBrains()
 	{
 		int pSurv = 0;
 		int pNum = 0;
+		int pTotalTurnsBeforePass = 0;
 		float pTotalHandValue = 0;
+		float pTotalScore = 0;
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
 			auto& brain = _brainsPerPersonality[p][i];
@@ -566,26 +570,36 @@ void Trainer::sortBrains()
 				num += brain->numGamesPerSeat[s];
 			}
 			int surv = num - brain->numLosses;
+			float averageTurnsBeforePass = 1.0
+				* brain->totalTurnsBeforePass / num;
 			std::cout << (i + 1) << ":\t"
 				"" << brain->personality << brain->serialNumber << ""
 				" scored " << (0.1 * int(10 * brain->objectiveScore)) << ""
 				", survived"
 				" " << (0.1 * int(100 * 10 * surv / num)) << "%"
-				" (" << surv << "/" << num << ")"
-				" and had average hand value "
+				" of games"
+				", had games that lasted"
+				" " << (0.1 * int(10 * averageTurnsBeforePass)) << " turns"
+				" and had average hand value"
 				" " << (0.1 * int(10 * brain->totalHandValue / num)) << ""
-				" (" << brain->totalHandValue << " total)"
 				"" << std::endl;
 			pSurv += surv;
 			pNum += num;
+			pTotalTurnsBeforePass += brain->totalTurnsBeforePass;
 			pTotalHandValue += brain->totalHandValue;
+			pTotalScore += brain->objectiveScore;
 		}
-		std::cout << "Overall, " << char('A' + p) << " survived"
+		float pAverageScore = pTotalScore / NUM_BRAINS_PER_PERSONALITY;
+		float pAverageTurnsBeforePass = 1.0 * pTotalTurnsBeforePass / pNum;
+		std::cout << "Overall, " << char('A' + p) << ""
+			" scored " << (0.1 * int(10 * pAverageScore)) << ""
+			", survived"
 			" " << (0.1 * int(100 * 10 * pSurv / pNum)) << "%"
-			" (" << pSurv << "/" << pNum << ")"
-			" and had average hand value "
+			" of games"
+			", had games that lasted"
+			" " << (0.1 * int(10 * pAverageTurnsBeforePass)) << " turns"
+			" and had average hand value"
 			" " << (0.1 * int(10 * pTotalHandValue / pNum)) << ""
-			" (" << pTotalHandValue << " total)"
 			"" << std::endl;
 		std::cout << std::endl;
 	}
@@ -677,7 +691,7 @@ void Trainer::train()
 			"" << std::endl;
 	}
 
-	size_t numRounds = 100;
+	size_t numRounds = 1000;
 	for (; _round < numRounds; _round++)
 	{
 		std::cout << "########################################" << std::endl;

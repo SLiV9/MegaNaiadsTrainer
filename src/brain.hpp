@@ -23,6 +23,7 @@ public:
 	const char personality;
 	const size_t serialNumber;
 	int numLosses = 0;
+	int totalTurnsBeforePass = 0;
 	float totalHandValue = 0;
 	float objectiveScore = 0;
 
