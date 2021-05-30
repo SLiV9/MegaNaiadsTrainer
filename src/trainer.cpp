@@ -83,7 +83,7 @@ inline void debugPrintGameState(const Game& game,
 		{
 			std::cout << " <passed>";
 		}
-		std::cout << "\t\t(has discarded ";
+		std::cout << "   discarded: ";
 		for (size_t c = 0; c < NUM_CARDS; c++)
 		{
 			if (state[(1 + s) * NUM_CARDS + c] < 1
@@ -93,7 +93,6 @@ inline void debugPrintGameState(const Game& game,
 				std::cout << " ";
 			}
 		}
-		std::cout << ")";
 		std::cout << std::endl;
 	}
 	for (size_t i = 0; i < NUM_STATE_SETS * NUM_CARDS; i++)
@@ -102,11 +101,11 @@ inline void debugPrintGameState(const Game& game,
 		{
 			std::cout << std::endl;
 		}
-		std::cout << int(state[i]) << " ";
-		if (i % NUM_FACES_PER_SUIT == 0)
+		else if (i > 0 && i % NUM_FACES_PER_SUIT == 0)
 		{
 			std::cout << "  ";
 		}
+		std::cout << int(state[i]) << " ";
 	}
 	std::cout << std::endl;
 	std::cout << "----------------------" << std::endl;
@@ -184,7 +183,7 @@ inline void updateGameState(Game& game,
 		state[(1 + activeSeat) * NUM_CARDS + tableCard] = 1;
 		state[(1 + activeSeat) * NUM_CARDS + ownCard] = 0;
 		state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + tableCard] = 1;
-		state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + ownCard] = 0;
+		state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + ownCard] = 1;
 
 		// If all players but one have passed, the game ends after
 		// that player's next turn.
@@ -200,11 +199,18 @@ inline void updateGameState(Game& game,
 			// Swap with the table.
 			for (size_t c = 0; c < NUM_CARDS; c++)
 			{
-				state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + c] =
-					state[c];
-				auto swap = state[c];
-				state[c] = state[(1 + activeSeat) * NUM_CARDS + c];
-				state[(1 + activeSeat) * NUM_CARDS + c] = swap;
+				if (state[c] > 0)
+				{
+					state[c] = 0;
+					state[(1 + activeSeat) * NUM_CARDS + c] = 1;
+					state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + c] = 1;
+				}
+				else if (state[(1 + activeSeat) * NUM_CARDS + c] > 0)
+				{
+					state[c] = 1;
+					state[(1 + activeSeat) * NUM_CARDS + c] = 0;
+					state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + c] = 1;
+				}
 			}
 		}
 
@@ -350,25 +356,6 @@ void Trainer::playRound()
 		start = end;
 	}
 
-	for (size_t g = 0; g < games.size(); g += (1 + (rng() % numGamesPerBrain)))
-	{
-		if (g == 0)
-		{
-			debugPrintGameState(games[g], gameState[g].data());
-		}
-		assertCorrectGameState(games[g], gameState[g].data());
-	}
-
-	// Timing:
-	{
-		auto end = std::chrono::high_resolution_clock::now();
-		int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-			end - start).count();
-		std::cout << "Verifying took " << elapsed << "ms"
-			"" << std::endl;
-		start = end;
-	}
-
 	std::cout << "Playing " << games.size() << " games..." << std::endl;
 	size_t maxTurnsPerPlayer = 10;
 	bool allFinished = false;
@@ -379,6 +366,17 @@ void Trainer::playRound()
 			std::cout << "Preparing turn " << (t * NUM_SEATS + s) << ""
 				" (seat " << s << ")"
 				"..." << std::endl;
+
+			// Verify some of the games.
+			for (size_t g = 0; g < games.size();
+				g += (1 + (rng() % numGamesPerBrain)))
+			{
+				if (g == 0 && games[g].numPassed() < NUM_SEATS)
+				{
+					debugPrintGameState(games[g], gameState[g].data());
+				}
+				assertCorrectGameState(games[g], gameState[g].data());
+			}
 
 			// Prepare the views for this turn.
 			for (size_t g = 0; g < games.size(); g++)
@@ -424,17 +422,6 @@ void Trainer::playRound()
 
 			std::cout << "Still " << numUnfinished << " games"
 				" left unfinished." << std::endl;
-
-			// Verify some of the games.
-			for (size_t g = 0; g < games.size();
-				g += (1 + (rng() % numGamesPerBrain)))
-			{
-				if (g == 0)
-				{
-					debugPrintGameState(games[g], gameState[g].data());
-				}
-				assertCorrectGameState(games[g], gameState[g].data());
-			}
 		}
 	}
 
@@ -445,6 +432,26 @@ void Trainer::playRound()
 			end - start).count();
 		std::cout << "Playing round took " << elapsed << "ms"
 			" (" << (elapsed / games.size()) << "ms per game)"
+			"" << std::endl;
+		start = end;
+	}
+
+	// Verify some of the games.
+	for (size_t g = 0; g < games.size(); g ++)
+	{
+		if (g == 0)
+		{
+			debugPrintGameState(games[g], gameState[g].data());
+		}
+		assertCorrectGameState(games[g], gameState[g].data());
+	}
+
+	// Timing:
+	{
+		auto end = std::chrono::high_resolution_clock::now();
+		int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+			end - start).count();
+		std::cout << "Verifying took " << elapsed << "ms"
 			"" << std::endl;
 		start = end;
 	}
