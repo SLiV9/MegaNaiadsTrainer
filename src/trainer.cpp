@@ -67,7 +67,9 @@ inline void debugPrintGameState(const Game& game,
 	std::cout << std::endl;
 	for (size_t s = 0; s < NUM_SEATS; s++)
 	{
-		std::cout << "Seat " << s << ": ";
+		std::cout << "Seat " << s << ""
+			" (" << game.players[s].brain->personality << ")"
+			": ";
 		for (size_t c = 0; c < NUM_CARDS; c++)
 		{
 			if (state[(1 + s) * NUM_CARDS + c] > 0)
@@ -256,7 +258,6 @@ inline void updateViewBuffers(const Game& game,
 inline void tallyGameResult(const Game& game,
 	const uint8_t* state)
 {
-	float lastHandValue = 100;
 	std::array<float, NUM_SEATS> handValues = { 0 };
 	for (size_t s = 0; s < NUM_SEATS; s++)
 	{
@@ -300,20 +301,24 @@ inline void tallyGameResult(const Game& game,
 			v = 30.5;
 		}
 		handValues[s] = v;
-		if (v < lastHandValue)
+	}
+	float leastHandValue = 100;
+	for (size_t s = 0; s < NUM_SEATS; s++)
+	{
+		if (handValues[s] < leastHandValue)
 		{
-			lastHandValue = v;
+			leastHandValue = handValues[s];
 		}
 	}
 	for (size_t s = 0; s < NUM_SEATS; s++)
 	{
-		if (handValues[s] == lastHandValue)
+		auto& brain = game.players[s].brain;
+		if (handValues[s] == leastHandValue)
 		{
-			game.players[s].brain->numLosses += 1;
+			brain->numLosses += 1;
 		}
-		game.players[s].brain->totalHandValue += handValues[s];
-		game.players[s].brain->totalTurnsBeforePass +=
-			game.players[s].turnOfPass;
+		brain->totalHandValue += handValues[s];
+		brain->totalTurnsBeforePass += game.players[s].turnOfPass;
 	}
 }
 
@@ -540,6 +545,10 @@ void Trainer::sortBrains()
 				num += brain->numGamesPerSeat[s];
 			}
 			brain->objectiveScore = 1000.0 * (num - brain->numLosses) / num;
+			// Bonus objective: get highest possible hand value.
+			float handValue = (brain->totalHandValue / num);
+			float maxHandValue = 31.0;
+			brain->objectiveScore += 1000 * (handValue / maxHandValue);
 		}
 	}
 
@@ -578,7 +587,7 @@ void Trainer::sortBrains()
 				", survived"
 				" " << (0.1 * int(100 * 10 * surv / num)) << "%"
 				" of games"
-				", had games that lasted"
+				", passed after"
 				" " << (0.1 * int(10 * averageTurnsBeforePass)) << " turns"
 				" and had average hand value"
 				" " << (0.1 * int(10 * brain->totalHandValue / num)) << ""
@@ -596,7 +605,7 @@ void Trainer::sortBrains()
 			", survived"
 			" " << (0.1 * int(100 * 10 * pSurv / pNum)) << "%"
 			" of games"
-			", had games that lasted"
+			", passed after"
 			" " << (0.1 * int(10 * pAverageTurnsBeforePass)) << " turns"
 			" and had average hand value"
 			" " << (0.1 * int(10 * pTotalHandValue / pNum)) << ""

@@ -15,16 +15,22 @@ Brain::Brain(char p, std::shared_ptr<Module> module) :
 	personality(p),
 	serialNumber(++_brainSerialNumber)
 {
-	if (ENABLE_CUDA) _module->to(torch::kCUDA, torch::kHalf);
+	if (!_module) {}
+	else if (ENABLE_CUDA) _module->to(torch::kCUDA, torch::kHalf);
 	else _module->to(torch::kFloat);
 }
 
 Brain::Brain(char personality) :
-	Brain(personality, std::make_shared<Module>())
+	Brain(personality,
+		(personality == 'D')
+			? std::shared_ptr<Module>()
+			: std::make_shared<Module>()
+	)
 {}
 
 void Brain::reset(size_t seat)
 {
+	assert(seat < NUM_SEATS);
 	size_t n = numGamesPerSeat[seat] * NUM_VIEW_SETS * NUM_CARDS;
 	viewBufferPerSeat[seat].resize(n, 0);
 	viewTensorPerSeat[seat] = torch::zeros(
@@ -35,16 +41,31 @@ void Brain::reset(size_t seat)
 		viewTensorPerSeat[seat] = viewTensorPerSeat[seat].contiguous().to(
 			torch::kCUDA, torch::kHalf, /*non_blocking=*/true);
 	}
+	outputTensorPerSeat[seat] = torch::zeros(
+			{int(numGamesPerSeat[seat]), int(ACTION_SIZE)},
+			torch::kFloat);
 }
 
 void Brain::evaluate(size_t seat)
 {
+	if (!_module)
+	{
+		if (personality != 'D')
+		{
+			std::cerr << "missing module"
+				" for " << personality << serialNumber << ""
+				"" << std::endl;
+		}
+		return;
+	}
+
 	assert(seat < NUM_SEATS);
 	_module->forward(viewTensorPerSeat[seat], outputTensorPerSeat[seat]);
 }
 
 void Brain::cycle(size_t seat)
 {
+	assert(seat < NUM_SEATS);
 	torch::Tensor bufferTensor = torch::from_blob(
 		viewBufferPerSeat[seat].data(),
 		{
@@ -65,12 +86,20 @@ void Brain::cycle(size_t seat)
 
 Brain Brain::clone()
 {
+	if (!_module)
+	{
+		return Brain(personality);
+	}
 	return Brain(personality,
 		std::make_shared<Module>(*_module));
 }
 
 void Brain::mutate(float deviationFactor)
 {
+	if (!_module)
+	{
+		return;
+	}
 	std::vector<torch::Tensor>& myParams = _module->parameters();
 
 	std::vector<uint8_t> yesOrNo(myParams.size(), false);
@@ -89,7 +118,8 @@ void Brain::mutate(float deviationFactor)
 			torch::Tensor& param = myParams[i];
 			// Take the standard normal deviation.
 			torch::Tensor mutationTensor = torch::randn(param.sizes(),
-				torch::TensorOptions().device(param.device()).dtype(param.dtype()));
+				torch::TensorOptions().device(param.device())
+					.dtype(param.dtype()));
 			// Scale it down to the deviationFactor.
 			mutationTensor.mul_(deviationFactor);
 			// Add that to the existing parameter.
@@ -100,6 +130,10 @@ void Brain::mutate(float deviationFactor)
 
 void Brain::spliceWith(const Brain& other)
 {
+	if (!_module)
+	{
+		return;
+	}
 	std::vector<torch::Tensor>& myParams = _module->parameters();
 
 	std::vector<uint8_t> yesOrNo(myParams.size(), false);
@@ -111,6 +145,7 @@ void Brain::spliceWith(const Brain& other)
 	}
 	std::shuffle(yesOrNo.begin(), yesOrNo.end(), rng);
 
+	assert(other._module);
 	const std::vector<torch::Tensor>& otherParams = other._module->parameters();
 	for (size_t i = 0; i < myParams.size() && i < otherParams.size(); i++)
 	{
