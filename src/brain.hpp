@@ -48,7 +48,7 @@ public:
 	void evaluate(size_t seat);
 	void cycle(size_t seat);
 
-	Brain makeMutation(float deviationFactor) const;
+	Brain makeMutation(double deviationFactor) const;
 	Brain makeOffspringWith(const Brain& other) const;
 
 	void saveScan(const std::string& filepath);

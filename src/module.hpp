@@ -29,6 +29,6 @@ public:
 
 	void forward(const torch::Tensor& i, torch::Tensor& o) const;
 
-	void mutate(float deviationFactor);
+	void mutate(double deviationFactor);
 	void spliceWith(const Module& other);
 };

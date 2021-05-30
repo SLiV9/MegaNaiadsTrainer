@@ -84,7 +84,7 @@ void Brain::cycle(size_t seat)
 	}
 }
 
-Brain Brain::makeMutation(float deviationFactor) const
+Brain Brain::makeMutation(double deviationFactor) const
 {
 	if (!_module)
 	{

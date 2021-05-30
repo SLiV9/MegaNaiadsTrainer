@@ -446,7 +446,9 @@ void Trainer::playRound()
 	{
 		for (size_t s = 0; s < NUM_SEATS && !allFinished; s++)
 		{
-			std::cout << "Preparing turn " << (t * NUM_SEATS + s) << ""
+			std::cout << "Preparing"
+				" round " << _round << ""
+				" turn " << (t * NUM_SEATS + s) << ""
 				" (seat " << s << ")"
 				"...\t" << std::flush;
 
@@ -686,7 +688,7 @@ void Trainer::evolveBrains()
 		size_t i = NUM_BRAINS_PER_PERSONALITY - 1;
 		// A fifth of the new pool will be mutations of the best fifth.
 		// The amount of mutation decreases over time.
-		float deviationFactor = 0.5 / sqrtf(_round + 1);
+		double deviationFactor = 0.05 / sqrt(_round + 1);
 		for (size_t k = 0; k < chunkSize && i > 2 * chunkSize; k++, i--)
 		{
 			Brain brain = pool[k]->makeMutation(deviationFactor);
@@ -812,7 +814,10 @@ void Trainer::train()
 
 		playRound();
 		sortBrains();
-		saveBrains();
+		if (_round % 10 == 0)
+		{
+			saveBrains();
+		}
 		evolveBrains();
 
 		std::cout << "########################################" << std::endl;

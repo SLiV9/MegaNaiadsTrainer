@@ -60,7 +60,7 @@ void Module::forward(const torch::Tensor& input, torch::Tensor& output) const
 	output = s.to(torch::kCPU, torch::kFloat, /*non_blocking=*/true);
 }
 
-void Module::mutate(float deviationFactor)
+void Module::mutate(double deviationFactor)
 {
 	std::vector<torch::Tensor>& myParams = parameters();
 
