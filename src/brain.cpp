@@ -1,7 +1,5 @@
 #include "brain.hpp"
 
-#include <random>
-
 #include "module.hpp"
 
 
@@ -10,10 +8,13 @@ static torch::NoGradGuard no_grad;
 
 static size_t _brainSerialNumber = 0;
 
-Brain::Brain(char p, std::shared_ptr<Module> module) :
+Brain::Brain(char p, size_t mNum, size_t fNum,
+		std::shared_ptr<Module> module) :
 	_module(module),
 	personality(p),
-	serialNumber(++_brainSerialNumber)
+	serialNumber(++_brainSerialNumber),
+	motherNumber(mNum),
+	fatherNumber(fNum)
 {
 	if (!_module) {}
 	else if (ENABLE_CUDA) _module->to(torch::kCUDA, torch::kHalf);
@@ -21,7 +22,7 @@ Brain::Brain(char p, std::shared_ptr<Module> module) :
 }
 
 Brain::Brain(char personality) :
-	Brain(personality,
+	Brain(personality, 0, 0,
 		(personality == 'D')
 			? std::shared_ptr<Module>()
 			: std::make_shared<Module>()
@@ -81,74 +82,24 @@ void Brain::cycle(size_t seat)
 	}
 }
 
-Brain Brain::clone()
+Brain Brain::makeMutation(float deviationFactor) const
 {
 	if (!_module)
 	{
 		return Brain(personality);
 	}
-	return Brain(personality,
-		std::make_shared<Module>(*_module));
+	auto newModule = std::dynamic_pointer_cast<Module>(_module->clone());
+	newModule->mutate(deviationFactor);
+	return Brain(personality, serialNumber, 0, newModule);
 }
 
-void Brain::mutate(float deviationFactor)
+Brain Brain::makeOffspringWith(const Brain& other) const
 {
 	if (!_module)
 	{
-		return;
+		return Brain(personality);
 	}
-	std::vector<torch::Tensor>& myParams = _module->parameters();
-
-	std::vector<uint8_t> yesOrNo(myParams.size(), false);
-	std::random_device rd;
-	std::mt19937 rng(rd());
-	for (size_t i = 1; i < yesOrNo.size(); i += 2)
-	{
-		yesOrNo[i] = true;
-	}
-	std::shuffle(yesOrNo.begin(), yesOrNo.end(), rng);
-
-	for (size_t i = 0; i < myParams.size(); i++)
-	{
-		if (yesOrNo[i])
-		{
-			torch::Tensor& param = myParams[i];
-			// Take the standard normal deviation.
-			torch::Tensor mutationTensor = torch::randn(param.sizes(),
-				torch::TensorOptions().device(param.device())
-					.dtype(param.dtype()));
-			// Scale it down to the deviationFactor.
-			mutationTensor.mul_(deviationFactor);
-			// Add that to the existing parameter.
-			param.add_(mutationTensor);
-		}
-	}
-}
-
-void Brain::spliceWith(const Brain& other)
-{
-	if (!_module)
-	{
-		return;
-	}
-	std::vector<torch::Tensor>& myParams = _module->parameters();
-
-	std::vector<uint8_t> yesOrNo(myParams.size(), false);
-	std::random_device rd;
-	std::mt19937 rng(rd());
-	for (size_t i = 1; i < yesOrNo.size(); i += 2)
-	{
-		yesOrNo[i] = true;
-	}
-	std::shuffle(yesOrNo.begin(), yesOrNo.end(), rng);
-
-	const std::vector<torch::Tensor>& otherParams = other._module->parameters();
-	for (size_t i = 0; i < myParams.size() && i < otherParams.size(); i++)
-	{
-		if (yesOrNo[i])
-		{
-			// Copy the parameter of the other module in its entirity.
-			myParams[i].copy_(otherParams[i], /*non_blocking=*/true);
-		}
-	}
+	auto newModule = std::dynamic_pointer_cast<Module>(_module->clone());
+	newModule->spliceWith(*(other._module));
+	return Brain(personality, serialNumber, other.serialNumber, newModule);
 }

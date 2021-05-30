@@ -189,6 +189,9 @@ inline void updateGameState(Game& game,
 
 	if (tableCardWeight > passWeight && ownCardWeight > passWeight)
 	{
+		game.players[activeSeat].brain->totalConfidence +=
+			std::min(std::min(tableCardWeight, ownCardWeight), 1.0f);
+
 		// Normal move.
 		state[tableCard] = 0;
 		state[ownCard] = 1;
@@ -206,6 +209,9 @@ inline void updateGameState(Game& game,
 	}
 	else
 	{
+		game.players[activeSeat].brain->totalConfidence +=
+			std::min(passWeight, 1.0f);
+
 		if (swapOnPass)
 		{
 			// Swap with the table.
@@ -329,7 +335,7 @@ inline void tallyGameResult(const Game& game,
 			brain->totalSurvivingHandValue += handValues[s];
 		}
 		brain->totalHandValue += handValues[s];
-		brain->totalTurnsBeforePass += game.players[s].turnOfPass;
+		brain->totalTurnsPlayed += game.players[s].turnOfPass + 1;
 	}
 }
 
@@ -388,7 +394,8 @@ void Trainer::playRound()
 				brain->reset(s);
 			}
 			brain->numLosses = 0;
-			brain->totalTurnsBeforePass = 0;
+			brain->totalTurnsPlayed = 0;
+			brain->totalConfidence = 0;
 			brain->totalHandValue = 0;
 			brain->totalLosingHandValue = 0;
 			brain->totalSurvivingHandValue = 0;
@@ -578,7 +585,8 @@ void Trainer::sortBrains()
 	{
 		int pSurv = 0;
 		int pNum = 0;
-		int pTotalTurnsBeforePass = 0;
+		int pTotalTurnsPlayed = 0;
+		float pTotalConfidence = 0;
 		float pTotalHandValue = 0;
 		float pTotalLossValue = 0;
 		float pTotalWinValue = 0;
@@ -593,47 +601,57 @@ void Trainer::sortBrains()
 			}
 			int surv = num - brain->numLosses;
 			float averageTurnsBeforePass = 1.0
-				* brain->totalTurnsBeforePass / num;
+				* brain->totalTurnsPlayed / num;
+			float averageConfidence = brain->totalConfidence
+				/ std::max(1, brain->totalTurnsPlayed);
 			float averageWinValue = brain->totalSurvivingHandValue
-				/ std::max(0, surv);
+				/ std::max(1, surv);
 			float averageLossValue = brain->totalLosingHandValue
-				/ std::max(0, num - surv);
+				/ std::max(1, num - surv);
 			std::cout << (i + 1) << ":\t"
 				"" << brain->personality << brain->serialNumber << ""
+				" (" << brain->motherNumber << "+" << brain->fatherNumber << ")"
 				" scored " << (0.1 * int(10 * brain->objectiveScore)) << ""
 				", survived"
 				" " << (0.1 * int(100 * 10 * surv / num)) << "%"
 				" of games"
-				", passed after"
+				", played"
 				" " << (0.1 * int(10 * averageTurnsBeforePass)) << " turns"
 				" and had average hand value"
 				" " << (0.1 * int(10 * brain->totalHandValue / num)) << ""
 				" (win: " << (0.1 * int(10 * averageWinValue)) << ""
 				", loss: " << (0.1 * int(10 * averageLossValue)) << ")"
+				" with confidence"
+				" " << (0.1 * int(100 * 10 * averageConfidence)) << "%"
 				"" << std::endl;
 			pSurv += surv;
 			pNum += num;
-			pTotalTurnsBeforePass += brain->totalTurnsBeforePass;
+			pTotalTurnsPlayed += brain->totalTurnsPlayed;
+			pTotalConfidence += brain->totalConfidence;
 			pTotalHandValue += brain->totalHandValue;
 			pTotalWinValue += brain->totalSurvivingHandValue;
 			pTotalLossValue += brain->totalLosingHandValue;
 			pTotalScore += brain->objectiveScore;
 		}
 		float pAverageScore = pTotalScore / NUM_BRAINS_PER_PERSONALITY;
-		float pAverageTurnsBeforePass = 1.0 * pTotalTurnsBeforePass / pNum;
-		float pAverageWinValue = pTotalWinValue / std::max(0, pSurv);
-		float pAverageLossValue = pTotalLossValue / std::max(0, pNum - pSurv);
+		float pAverageTurnsBeforePass = 1.0 * pTotalTurnsPlayed / pNum;
+		float pAverageConfidence = pTotalConfidence
+			/ std::max(1, pTotalTurnsPlayed);
+		float pAverageWinValue = pTotalWinValue / std::max(1, pSurv);
+		float pAverageLossValue = pTotalLossValue / std::max(1, pNum - pSurv);
 		std::cout << "Overall, " << char('A' + p) << ""
 			" scored " << (0.1 * int(10 * pAverageScore)) << ""
 			", survived"
 			" " << (0.1 * int(100 * 10 * pSurv / pNum)) << "%"
 			" of games"
-			", passed after"
+			", played"
 			" " << (0.1 * int(10 * pAverageTurnsBeforePass)) << " turns"
 			" and had average hand value"
 			" " << (0.1 * int(10 * pTotalHandValue / pNum)) << ""
 			" (win: " << (0.1 * int(10 * pAverageWinValue)) << ""
 			", loss: " << (0.1 * int(10 * pAverageLossValue)) << ")"
+			" with confidence"
+			" " << (0.1 * int(100 * 10 * pAverageConfidence)) << "%"
 			"" << std::endl;
 		std::cout << std::endl;
 	}
@@ -665,21 +683,22 @@ void Trainer::evolveBrains()
 		float deviationFactor = 0.5 / sqrtf(_round + 1);
 		for (size_t k = 0; k < chunkSize && i > 2 * chunkSize; k++, i--)
 		{
-			pool[i] = std::make_shared<Brain>(pool[k]->clone());
-			pool[i]->mutate(deviationFactor);
+			Brain brain = pool[k]->makeMutation(deviationFactor);
+			pool[i] = std::make_shared<Brain>(std::move(brain));
 		}
 		// A fifth of the new pool will consist of the offspring of
 		// pairs of brains from the best fifth and second fifth.
 		for (size_t k = 0; k < chunkSize && i > 2 * chunkSize; k++, i--)
 		{
-			pool[i] = std::make_shared<Brain>(pool[k]->clone());
-			pool[i]->spliceWith(*pool[chunkSize + k]);
+			Brain brain = pool[k]->makeOffspringWith(*pool[chunkSize + k]);
+			pool[i] = std::make_shared<Brain>(std::move(brain));
 		}
 		// The middle fifth of the new pool is spliced with
 		// brains from the best fifth.
 		for (size_t k = 0; k < chunkSize && i > 2 * chunkSize; k++, i--)
 		{
-			pool[i]->spliceWith(*pool[k]);
+			Brain brain = pool[i]->makeOffspringWith(*pool[k]);
+			pool[i] = std::make_shared<Brain>(std::move(brain));
 		}
 	}
 

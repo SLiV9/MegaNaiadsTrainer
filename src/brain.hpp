@@ -22,15 +22,19 @@ public:
 	std::array<std::vector<float>, NUM_SEATS> viewBufferPerSeat;
 	const char personality;
 	const size_t serialNumber;
+	const size_t motherNumber;
+	const size_t fatherNumber;
 	int numLosses = 0;
-	int totalTurnsBeforePass = 0;
+	int totalTurnsPlayed = 0;
+	float totalConfidence = 0;
 	float totalHandValue = 0;
 	float totalLosingHandValue = 0;
 	float totalSurvivingHandValue = 0;
 	float objectiveScore = 0;
 
 private:
-	explicit Brain(char personality, std::shared_ptr<Module> module);
+	explicit Brain(char personality, size_t motherNumber, size_t fatherNumber,
+		std::shared_ptr<Module> module);
 
 public:
 	explicit Brain(char personality);
@@ -44,7 +48,6 @@ public:
 	void evaluate(size_t seat);
 	void cycle(size_t seat);
 
-	Brain clone();
-	void mutate(float deviationFactor);
-	void spliceWith(const Brain& other);
+	Brain makeMutation(float deviationFactor) const;
+	Brain makeOffspringWith(const Brain& other) const;
 };

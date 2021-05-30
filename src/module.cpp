@@ -2,6 +2,8 @@
 
 #include "const.hpp"
 
+#include <random>
+
 
 #define INNER_SIZE 500
 
@@ -56,4 +58,58 @@ void Module::forward(const torch::Tensor& input, torch::Tensor& output) const
 	s = torch::relu(torch::linear(s, _fc4->weight, _fc4->bias));
 	s = torch::sigmoid(torch::linear(s, _fc5->weight, _fc5->bias));
 	output = s.to(torch::kCPU, torch::kFloat, /*non_blocking=*/true);
+}
+
+void Module::mutate(float deviationFactor)
+{
+	std::vector<torch::Tensor>& myParams = parameters();
+
+	std::vector<uint8_t> yesOrNo(myParams.size(), false);
+	std::random_device rd;
+	std::mt19937 rng(rd());
+	for (size_t i = 1; i < yesOrNo.size(); i += 2)
+	{
+		yesOrNo[i] = true;
+	}
+	std::shuffle(yesOrNo.begin(), yesOrNo.end(), rng);
+
+	for (size_t i = 0; i < myParams.size(); i++)
+	{
+		if (yesOrNo[i])
+		{
+			torch::Tensor& param = myParams[i];
+			// Take the standard normal deviation.
+			torch::Tensor mutationTensor = torch::randn(param.sizes(),
+				torch::TensorOptions().device(param.device())
+					.dtype(param.dtype()));
+			// Scale it down to the deviationFactor.
+			mutationTensor.mul_(deviationFactor);
+			// Add that to the existing parameter.
+			param.add_(mutationTensor);
+		}
+	}
+}
+
+void Module::spliceWith(const Module& other)
+{
+	std::vector<torch::Tensor>& myParams = parameters();
+
+	std::vector<uint8_t> yesOrNo(myParams.size(), false);
+	std::random_device rd;
+	std::mt19937 rng(rd());
+	for (size_t i = 1; i < yesOrNo.size(); i += 2)
+	{
+		yesOrNo[i] = true;
+	}
+	std::shuffle(yesOrNo.begin(), yesOrNo.end(), rng);
+
+	const std::vector<torch::Tensor>& otherParams = other.parameters();
+	for (size_t i = 0; i < myParams.size() && i < otherParams.size(); i++)
+	{
+		if (yesOrNo[i])
+		{
+			// Copy the parameter of the other module in its entirity.
+			myParams[i].copy_(otherParams[i], /*non_blocking=*/true);
+		}
+	}
 }
