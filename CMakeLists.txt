@@ -18,6 +18,7 @@ link_directories(${CMAKE_SOURCE_DIR})
 include_directories(src)
 
 add_executable(trainer src/main.cpp
+	libs/lodepng/lodepng.cpp
         src/module.cpp src/brain.cpp
         src/trainer.cpp)
 set_target_properties(trainer PROPERTIES LINK_FLAGS "/DEBUG")

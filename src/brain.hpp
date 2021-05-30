@@ -50,4 +50,6 @@ public:
 
 	Brain makeMutation(float deviationFactor) const;
 	Brain makeOffspringWith(const Brain& other) const;
+
+	void saveScan(const std::string& filepath);
 };

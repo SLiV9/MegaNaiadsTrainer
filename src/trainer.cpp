@@ -3,6 +3,12 @@
 #include <algorithm>
 #include <random>
 
+#ifdef _MSC_VER
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
+
 #include <torch/torch.h>
 
 #include "const.hpp"
@@ -713,6 +719,59 @@ void Trainer::evolveBrains()
 	}
 }
 
+void Trainer::saveBrains()
+{
+	auto start = std::chrono::high_resolution_clock::now();
+	std::random_device rd;
+	std::mt19937 rng(rd());
+
+	std::string folder = BRAIN_OUTPUT_FOLDER "/" + std::to_string(_startTime);
+	{
+		struct stat buffer;
+		if (stat(folder.c_str(), &buffer) != 0)
+		{
+			std::cout << "Making directory " << folder << std::endl;
+#ifdef __unix__
+			mkdir(folder.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+#else
+			mkdir(folder.c_str());
+#endif
+		}
+	}
+
+	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+	{
+		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
+		{
+			auto& brain = _brainsPerPersonality[p][i];
+			if (i == 0 || i == 1 || i == NUM_BRAINS_PER_PERSONALITY - 1)
+			{
+				std::string name;
+				name += brain->personality;
+				name += "_" + std::to_string(_round);
+				if (i == 0) name += "_best";
+				else if (i == 1) name += "_second";
+				else name += "_worst";
+				name += "_" + std::to_string(brain->serialNumber);
+				name += "_" + std::to_string(brain->motherNumber);
+				name += "_" + std::to_string(brain->fatherNumber);
+				std::string filepath = folder + "/" + name + ".png";
+				brain->saveScan(filepath);
+			}
+		}
+	}
+
+	// Timing:
+	{
+		auto end = std::chrono::high_resolution_clock::now();
+		int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+			end - start).count();
+		std::cout << "Saving brains took " << elapsed << "ms"
+			"" << std::endl;
+		start = end;
+	}
+}
+
 void Trainer::train()
 {
 	auto start = std::chrono::high_resolution_clock::now();
@@ -753,6 +812,7 @@ void Trainer::train()
 
 		playRound();
 		sortBrains();
+		saveBrains();
 		evolveBrains();
 
 		std::cout << "########################################" << std::endl;

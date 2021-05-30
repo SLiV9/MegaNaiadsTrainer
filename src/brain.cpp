@@ -1,5 +1,7 @@
 #include "brain.hpp"
 
+#include "libs/lodepng/lodepng.h"
+
 #include "module.hpp"
 
 
@@ -102,4 +104,215 @@ Brain Brain::makeOffspringWith(const Brain& other) const
 	auto newModule = std::dynamic_pointer_cast<Module>(_module->clone());
 	newModule->spliceWith(*(other._module));
 	return Brain(personality, serialNumber, other.serialNumber, newModule);
+}
+
+inline uint8_t paletteIndexFromValue(float value, float multiplier)
+{
+	// Scale [-X, X] to [0, 1].
+	float rel = ((value * multiplier) + 1.0f) * 0.5f;
+	// Scale [0, 1] to [0, 12], rounding to the nearest integer.
+	// (Adding and subtracting 1 makes sure -0.75 is rounded to -1).
+	int step = int(rel * 12 + 1.499999f) - 1;
+	// Convert {0, ..., 12} to {2, ..., 14}, clamping the edges to 1 and 15.
+	if (step < 0)
+	{
+		return 1;
+	}
+	else if (step > 12)
+	{
+		return 15;
+	}
+	return 2 + step;
+}
+
+void Brain::saveScan(const std::string& filepath)
+{
+	if (!_module)
+	{
+		if (personality != 'D')
+		{
+			std::cerr << "missing module"
+				" for " << personality << serialNumber << ""
+				"" << std::endl;
+		}
+		return;
+	}
+
+	int margin = 10;
+	int padding = 10;
+	int widthOfBias = 4;
+	int heightOfGradient = 50;
+
+	// Image dimensions:
+	int imagew = 2 * margin - padding;
+	int imageh = 2 * margin + heightOfGradient;
+	for (const auto& layer : { _module->_fc1, _module->_fc2,
+			_module->_fc3, _module->_fc4, _module->_fc5 })
+	{
+		int w = layer->options.in_features();
+		int h = layer->options.out_features();
+		imagew += padding + w + 1 + widthOfBias;
+		imageh = std::max(2 * margin + h + padding + heightOfGradient, imageh);
+	}
+
+	std::cout << "Saving scan"
+		" of size " << imagew << "x" << imageh << ""
+		" to " << filepath << ""
+		"" << std::endl;
+
+	// Palette size can be 2, 4, 16 or 256 colors.
+	const int bitdepth = 4;
+	const int paletteSize = 1 << bitdepth;
+	const int pixelsPerByte = 8 / bitdepth;
+	const uint8_t mask = (1 << bitdepth) - 1;
+	std::vector<size_t> histogram(paletteSize, 0);
+
+	size_t numBytes = (imagew * imageh + pixelsPerByte - 1) / pixelsPerByte;
+	std::vector<uint8_t> data(numBytes, 0);
+	int xOfBlock = margin;
+	int yOfBlock = margin;
+	float weightMultiplier = 15.0f;
+
+	for (const auto& layer : { _module->_fc1, _module->_fc2,
+			_module->_fc3, _module->_fc4, _module->_fc5 })
+	{
+		const auto& tt = layer->weight.to(torch::kCPU, torch::kFloat);
+		float* weight = tt.data_ptr<float>();
+		int w = layer->options.in_features();
+		int h = layer->options.out_features();
+		float _boundsCheck = *(tt[h - 1][w - 1].data_ptr<float>());
+		for (int y = 0; y < h; y++)
+		{
+			for (int x = 0; x < w; x++)
+			{
+				int xx = xOfBlock + x;
+				int yy = yOfBlock + y;
+				float v = weight[y * w + x];
+				uint8_t pix = paletteIndexFromValue(v, weightMultiplier);
+				histogram[pix] += 1;
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * bitdepth);
+			}
+		}
+		xOfBlock += w;
+		if (!layer->options.bias())
+		{
+			xOfBlock += padding;
+			continue;
+		}
+		xOfBlock += 1;
+		const auto& bb = layer->bias.to(torch::kCPU, torch::kFloat);
+		float _bbCheck = *(bb[h - 1].data_ptr<float>());
+		float *bias = bb.data_ptr<float>();
+		for (int y = 0; y < h; y += 1)
+		{
+			float v = bias[y];
+			uint8_t pix = paletteIndexFromValue(v, weightMultiplier);
+			histogram[pix] += 1;
+			for (int x = 0; x < widthOfBias; x++)
+			{
+				int xx = xOfBlock + x;
+				int yy = yOfBlock + y;
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * bitdepth);
+			}
+		}
+		xOfBlock += widthOfBias + padding;
+	}
+
+	if (heightOfGradient > 3)
+	{
+		xOfBlock = margin;
+		yOfBlock = imageh - margin - heightOfGradient;
+		int w = imagew - 2 * margin;
+		int h = heightOfGradient / 2 - 1;
+		for (int y = 0; y < h; y++)
+		{
+			for (int x = 0; x < w; x++)
+			{
+				int xx = xOfBlock + x;
+				int yy = yOfBlock + y;
+				int d = y - heightOfGradient / 2;
+				if (2 * x < w) d *= -1;
+				float v = -1.2f + 2.4f * (x + d) / w;
+				uint8_t pix = paletteIndexFromValue(v, 1.0f);
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * bitdepth);
+			}
+		}
+		yOfBlock += h + 1;
+
+		xOfBlock = margin;
+		size_t total = 0;
+		for (int i = 0; i < paletteSize; i++)
+		{
+			total += histogram[i];
+		}
+		for (int pix = 0; pix < paletteSize; pix++)
+		{
+			int wOfPix = ((w - paletteSize) * histogram[pix] + total - 1)
+				/ total;
+			for (int y = 0; y < h; y++)
+			{
+				for (int x = 0; x < wOfPix; x++)
+				{
+					int xx = xOfBlock + x;
+					int yy = yOfBlock + y;
+					int i = yy * imagew + xx;
+					int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+					data[i / pixelsPerByte] |=
+						(pix & mask) << (part * bitdepth);
+				}
+			}
+			xOfBlock += wOfPix;
+		}
+	}
+
+	lodepng::State state;
+	const uint32_t palette[paletteSize] = {
+		0x000000,
+		0xffffff, 0xaef8db,
+		0x2fedb7, 0x00d1c8, 0x00a2b8, 0x007495, 0x244966,
+		0x202433,
+		0x4a3659, 0x89416d, 0xc74e68, 0xf26d4d, 0xffa01c,
+		0xfacf00, 0xe1ff00,
+	};
+	for (int i = 0; i < paletteSize; i++)
+	{
+		uint8_t r = palette[i] >> 16;
+		uint8_t g = (palette[i] >> 8) & 0xFF;
+		uint8_t b = palette[i] & 0xFF;
+		lodepng_palette_add(&state.info_png.color, r, g, b, 0xFF);
+		lodepng_palette_add(&state.info_raw, r, g, b, 0xFF);
+	}
+
+	state.info_png.color.colortype = LCT_PALETTE;
+	state.info_png.color.bitdepth = bitdepth;
+	state.info_raw.colortype = LCT_PALETTE;
+	state.info_raw.bitdepth = bitdepth;
+	state.encoder.auto_convert = false;
+
+	{
+		std::vector<uint8_t> buffer;
+		auto error = lodepng::encode(buffer, data.data(),
+			imagew, imageh, state);
+		if (error)
+		{
+			std::cerr << "encoder error " << error << ": "
+				<< lodepng_error_text(error) << std::endl;
+		}
+
+		error = lodepng::save_file(buffer, filepath.c_str());
+		if (error)
+		{
+			std::cerr << "encoder error " << error << ": "
+				<< lodepng_error_text(error) << std::endl;
+		}
+	}
 }

@@ -13,3 +13,5 @@ constexpr size_t NUM_PERSONALITIES = 4;
 constexpr size_t NUM_BRAINS_PER_PERSONALITY = 25;
 
 #define ENABLE_CUDA torch::cuda::is_available()
+
+#define BRAIN_OUTPUT_FOLDER "C:\\Users\\sande\\Documents\\Cpp\\MegaNaiadsTrainer\\brains"
