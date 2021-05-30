@@ -19,6 +19,7 @@ public:
 	std::array<size_t, NUM_SEATS> numGamesPerSeat;
 	std::array<torch::Tensor, NUM_SEATS> viewTensorPerSeat;
 	std::array<torch::Tensor, NUM_SEATS> outputTensorPerSeat;
+	std::array<std::vector<float>, NUM_SEATS> viewBufferPerSeat;
 
 public:
 	Brain();
@@ -29,4 +30,5 @@ public:
 	~Brain() = default;
 
 	void evaluate(size_t seat);
+	void cycle(size_t seat);
 };

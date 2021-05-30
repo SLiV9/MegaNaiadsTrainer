@@ -214,7 +214,6 @@ inline void updateGameState(Game& game,
 		}
 	}
 
-	bool isStateChanged = false;
 	if (tableCardWeight > passWeight && ownCardWeight > passWeight)
 	{
 		// Normal move.
@@ -224,7 +223,6 @@ inline void updateGameState(Game& game,
 		state[(1 + activeSeat) * NUM_CARDS + ownCard] = 0;
 		state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + tableCard] = 1;
 		state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + ownCard] = 0;
-		isStateChanged = true;
 
 		// If all players but one have passed, the game ends after
 		// that player's next turn.
@@ -246,45 +244,35 @@ inline void updateGameState(Game& game,
 				state[c] = state[(1 + activeSeat) * NUM_CARDS + c];
 				state[(1 + activeSeat) * NUM_CARDS + c] = swap;
 			}
-			isStateChanged = true;
 		}
 
 		game.players[activeSeat].hasPassed = true;
 	}
+}
 
-	if (isStateChanged)
+inline void updateViewBuffers(const Game& game,
+	const uint8_t* state)
+{
+	for (size_t s = 0; s < NUM_SEATS; s++)
 	{
-		for (size_t s = 0; s < NUM_SEATS; s++)
+		auto& brain = game.players[s].brain;
+		size_t offset = game.players[s].relativeGameOffset;
+		float* rawbuffer = brain->viewBufferPerSeat[s].data();
+		float* buffer = &rawbuffer[offset * NUM_VIEW_SETS * NUM_CARDS];
+		for (size_t c = 0; c < NUM_CARDS; c++)
 		{
-			std::array<uint8_t, NUM_VIEW_SETS * NUM_CARDS> buffer;
-			for (size_t c = 0; c < NUM_CARDS; c++)
+			buffer[c] = state[c];
+			buffer[NUM_CARDS + c] = state[(1 + s) * NUM_CARDS + c];
+			for (size_t t = 0; t < NUM_SEATS; t++)
 			{
-				buffer[c] = state[c];
-				buffer[NUM_CARDS + c] = state[(1 + s) * NUM_CARDS + c];
-				for (size_t t = 0; t < NUM_SEATS; t++)
-				{
-					if (t == s) continue;
-					int relhand = (1 + ((t + NUM_SEATS - s) % NUM_SEATS));
-					buffer[relhand * NUM_CARDS + c] =
-						state[(1 + t) * NUM_CARDS + c]
-							* state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
-				}
-				buffer[(1 + NUM_SEATS) * NUM_CARDS + c] =
-					state[(1 + NUM_SEATS + s) * NUM_CARDS + c];
+				if (t == s) continue;
+				int relhand = (1 + ((t + NUM_SEATS - s) % NUM_SEATS));
+				buffer[relhand * NUM_CARDS + c] =
+					state[(1 + t) * NUM_CARDS + c]
+						* state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
 			}
-			torch::Tensor bufferTensor = torch::from_blob(
-				buffer.data(), int(buffer.size()), torch::kByte);
-			if (ENABLE_CUDA)
-			{
-				bufferTensor = bufferTensor.to(torch::kCUDA, torch::kHalf);
-			}
-			else
-			{
-				bufferTensor = bufferTensor.to(torch::kFloat);
-			}
-			auto& viewTensor = game.players[s].brain->viewTensorPerSeat[s][
-				game.players[s].relativeGameOffset];
-			viewTensor.copy_(bufferTensor, /*non_blocking=*/true);
+			buffer[(1 + NUM_SEATS) * NUM_CARDS + c] =
+				state[(1 + NUM_SEATS + s) * NUM_CARDS + c];
 		}
 	}
 }
@@ -366,6 +354,8 @@ void Trainer::playRound()
 				viewTensor = torch::zeros(
 					{int(n), int(NUM_VIEW_SETS * NUM_CARDS)},
 					torch::TensorOptions().dtype(torch::kFloat));
+				brain->viewBufferPerSeat[s].resize(
+					n * NUM_VIEW_SETS * NUM_CARDS);
 			}
 		}
 	}
@@ -484,6 +474,7 @@ void Trainer::playRound()
 			for (size_t g = 0; g < games.size(); g++)
 			{
 				updateGameState(games[g], gameState[g].data(), s);
+				updateViewBuffers(games[g], gameState[g].data());
 				if (games[g].numPassed() < NUM_SEATS)
 				{
 					numUnfinished += 1;
@@ -493,6 +484,15 @@ void Trainer::playRound()
 
 			std::cout << "Still " << numUnfinished << " games"
 				" left unfinished." << std::endl;
+
+			// Prepare the views for the next turn.
+			for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+			{
+				for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
+				{
+					_brainsPerPersonality[p][i]->cycle(s);
+				}
+			}
 
 			// Verify some of the games.
 			for (size_t g = 0; g < games.size();
@@ -522,6 +522,15 @@ void Trainer::playRound()
 void Trainer::train()
 {
 	auto start = std::chrono::high_resolution_clock::now();
+
+	if (ENABLE_CUDA)
+	{
+		std::cout << "CUDA enabled" << std::endl;
+	}
+	else
+	{
+		std::cout << "No CUDA available, or not enabled" << std::endl;
+	}
 
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
