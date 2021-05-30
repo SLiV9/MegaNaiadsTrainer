@@ -29,6 +29,7 @@ public:
 	Brain& operator=(Brain&&) = default;
 	~Brain() = default;
 
+	void reset(size_t seat);
 	void evaluate(size_t seat);
 	void cycle(size_t seat);
 };

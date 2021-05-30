@@ -10,6 +10,12 @@ Brain::Brain() :
 	else _module->to(torch::kFloat);
 }
 
+void Brain::reset(size_t seat)
+{
+	size_t n = numGamesPerSeat[seat] * NUM_VIEW_SETS * NUM_CARDS;
+	viewBufferPerSeat[seat].resize(n, 0);
+}
+
 void Brain::evaluate(size_t seat)
 {
 	assert(seat < NUM_SEATS);

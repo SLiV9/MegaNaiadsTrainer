@@ -115,59 +115,6 @@ inline void assertCorrectGameState(const Game& game,
 		}
 	}
 	assert(numUsed == NUM_CARDS_PER_HAND * (NUM_SEATS + 1));
-	for (size_t s = 0; s < NUM_SEATS; s++)
-	{
-		auto& brain = game.players[s].brain;
-		size_t offset = game.players[s].relativeGameOffset;
-		auto& viewTensor = brain->viewTensorPerSeat[s][offset];
-		torch::Tensor viewTensorCPU = viewTensor.to(torch::kCPU,
-			torch::kFloat);
-		const float* view = viewTensorCPU.data_ptr<float>();
-		for (size_t c = 0; c < NUM_CARDS; c++)
-		{
-			for (size_t hand = 0; hand < NUM_SEATS + 1; hand++)
-			{
-				if (state[hand * NUM_CARDS + c] < 1)
-				{
-					size_t relhand = (hand > 0)
-						? (1 + ((hand - 1 + NUM_SEATS - s) % NUM_SEATS))
-						: 0;
-					assert(view[relhand * NUM_CARDS + c] < 0.1);
-				}
-				continue;
-				size_t relhand = (hand > 0)
-					? (1 + ((hand - 1 + NUM_SEATS - s) % NUM_SEATS))
-					: 0;
-				if (relhand == 0 || relhand == 1)
-				{
-					assert(view[relhand * NUM_CARDS + c] > 0.9);
-				}
-				bool vis = (state[(hand + NUM_SEATS) * NUM_CARDS + c] > 0);
-				if (relhand > 0)
-				{
-					if (vis)
-					{
-						assert(view[relhand * NUM_CARDS + c] > 0.9);
-					}
-					else
-					{
-						assert(view[relhand * NUM_CARDS + c] < 0.1);
-					}
-				}
-				if (relhand == 1)
-				{
-					if (vis)
-					{
-						assert(view[(1 + NUM_SEATS) * NUM_CARDS + c] > 0.9);
-					}
-					else
-					{
-						assert(view[(1 + NUM_SEATS) * NUM_CARDS + c] < 0.1);
-					}
-				}
-			}
-		}
-	}
 }
 
 inline void updateGameState(Game& game,
@@ -263,16 +210,23 @@ inline void updateViewBuffers(const Game& game,
 		{
 			buffer[c] = state[c];
 			buffer[NUM_CARDS + c] = state[(1 + s) * NUM_CARDS + c];
-			for (size_t t = 0; t < NUM_SEATS; t++)
+		}
+		for (size_t t = 0; t < NUM_SEATS; t++)
+		{
+			int tt = (1 + ((t + NUM_SEATS - s) % NUM_SEATS));
+			for (size_t c = 0; c < NUM_CARDS; c++)
 			{
-				if (t == s) continue;
-				int relhand = (1 + ((t + NUM_SEATS - s) % NUM_SEATS));
-				buffer[relhand * NUM_CARDS + c] =
-					state[(1 + t) * NUM_CARDS + c]
-						* state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
+				buffer[(1 + NUM_SEATS + tt) * NUM_CARDS + c] =
+					state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
+				if (t != s)
+				{
+					buffer[(1 + tt) * NUM_CARDS + c] =
+						state[(1 + t) * NUM_CARDS + c]
+							* state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
+				}
 			}
-			buffer[(1 + NUM_SEATS) * NUM_CARDS + c] =
-				state[(1 + NUM_SEATS + s) * NUM_CARDS + c];
+			buffer[(1 + NUM_SEATS + NUM_SEATS) * NUM_CARDS + tt] =
+				game.players[t].hasPassed;
 		}
 	}
 }
@@ -331,8 +285,6 @@ void Trainer::playRound()
 			auto& brain = _brainsPerPersonality[p][i];
 			for (size_t s = 0; s < NUM_SEATS; s++)
 			{
-				size_t n = brain->numGamesPerSeat[s];
-
 				if (s == 0)
 				{
 					std::cout << char('A' + p) << i << ""
@@ -343,19 +295,14 @@ void Trainer::playRound()
 					std::cout << ",";
 				}
 				std::cout << ""
-					" " << n << " games"
+					" " << brain->numGamesPerSeat[s] << " games"
 					" from seat " << s << "";
 				if (s + 1 == NUM_SEATS)
 				{
 					std::cout << std::endl;
 				}
 
-				auto& viewTensor = brain->viewTensorPerSeat[s];
-				viewTensor = torch::zeros(
-					{int(n), int(NUM_VIEW_SETS * NUM_CARDS)},
-					torch::TensorOptions().dtype(torch::kFloat));
-				brain->viewBufferPerSeat[s].resize(
-					n * NUM_VIEW_SETS * NUM_CARDS);
+				brain->reset(s);
 			}
 		}
 	}
@@ -377,15 +324,17 @@ void Trainer::playRound()
 				assert(deckoffset < NUM_CARDS);
 				uint8_t card = deck[deckoffset++];
 				gameState[g][hand * NUM_CARDS + card] = 1;
-				for (size_t s = 0; s < NUM_SEATS; s++)
-				{
-					if (hand > 0 && hand - 1 != s) continue;
-					auto& brain = games[g].players[s].brain;
-					size_t offset = games[g].players[s].relativeGameOffset;
-					auto& view = brain->viewTensorPerSeat[s][offset];
-					view[hand * NUM_CARDS + card] = 1;
-				}
 			}
+		}
+		updateViewBuffers(games[g], gameState[g].data());
+	}
+
+	// Prepare the views for the first turn.
+	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+	{
+		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
+		{
+			_brainsPerPersonality[p][i]->cycle(0);
 		}
 	}
 
@@ -414,33 +363,6 @@ void Trainer::playRound()
 		int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
 			end - start).count();
 		std::cout << "Verifying took " << elapsed << "ms"
-			"" << std::endl;
-		start = end;
-	}
-
-	if (ENABLE_CUDA)
-	{
-		for (size_t p = 0; p < NUM_PERSONALITIES; p++)
-		{
-			for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
-			{
-				auto& brain = _brainsPerPersonality[p][i];
-				for (size_t s = 0; s < NUM_SEATS; s++)
-				{
-					auto& viewTensor = brain->viewTensorPerSeat[s];
-					viewTensor = viewTensor.contiguous().to(torch::kCUDA,
-						torch::kHalf);
-				}
-			}
-		}
-	}
-
-	// Timing:
-	{
-		auto end = std::chrono::high_resolution_clock::now();
-		int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-			end - start).count();
-		std::cout << "Contiguizing took " << elapsed << "ms"
 			"" << std::endl;
 		start = end;
 	}
