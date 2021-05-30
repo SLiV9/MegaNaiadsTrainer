@@ -20,11 +20,14 @@ public:
 	std::array<torch::Tensor, NUM_SEATS> viewTensorPerSeat;
 	std::array<torch::Tensor, NUM_SEATS> outputTensorPerSeat;
 	std::array<std::vector<float>, NUM_SEATS> viewBufferPerSeat;
+	const char personality;
+	const size_t serialNumber;
 	int numLosses = 0;
-	float totalScore = 0;
+	float totalHandValue = 0;
+	float objectiveScore = 0;
 
 public:
-	Brain();
+	explicit Brain(char personality);
 	Brain(const Brain&) = delete;
 	Brain(Brain&& other) = default;
 	Brain& operator=(const Brain&) = delete;

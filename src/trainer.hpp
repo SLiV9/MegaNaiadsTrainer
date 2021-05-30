@@ -30,6 +30,8 @@ public:
 
 private:
 	void playRound();
+	void sortBrains();
+	void evolveBrains();
 
 public:
 	void train();

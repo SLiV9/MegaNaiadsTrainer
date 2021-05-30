@@ -249,11 +249,11 @@ inline void updateViewBuffers(const Game& game,
 	}
 }
 
-inline void scoreGame(const Game& game,
+inline void tallyGameResult(const Game& game,
 	const uint8_t* state)
 {
-	float leastScore = 100;
-	std::array<float, NUM_SEATS> scores = { 0 };
+	float lastHandValue = 100;
+	std::array<float, NUM_SEATS> handValues = { 0 };
 	for (size_t s = 0; s < NUM_SEATS; s++)
 	{
 		std::array<uint8_t, NUM_CARDS_PER_HAND> hand;
@@ -269,50 +269,51 @@ inline void scoreGame(const Game& game,
 		}
 		bool hasMatch = true;
 		uint8_t matchingFace = hand[0] % NUM_FACES_PER_SUIT;
-		std::array<float, NUM_SUITS> scorePerSuit = { 0 };
+		std::array<float, NUM_SUITS> suitValue = { 0 };
 		for (size_t h = 0; h < NUM_CARDS_PER_HAND; h++)
 		{
 			uint8_t suit = hand[h] / NUM_FACES_PER_SUIT;
 			uint8_t face = hand[h] % NUM_FACES_PER_SUIT;
-			constexpr int SCORE_PER_FACE[NUM_FACES_PER_SUIT] = {
+			constexpr int VALUE_PER_FACE[NUM_FACES_PER_SUIT] = {
 				7, 8, 9, 10, 10, 10, 10, 11
 			};
-			scorePerSuit[suit] += SCORE_PER_FACE[face];
+			suitValue[suit] += VALUE_PER_FACE[face];
 			if (h > 0)
 			{
 				hasMatch = hasMatch && (face == matchingFace);
 			}
 		}
+		float v = 0;
 		for (size_t suit = 0; suit < NUM_SUITS; suit++)
 		{
-			if (scores[s] < scorePerSuit[suit])
+			if (v < suitValue[suit])
 			{
-				scores[s] = scorePerSuit[suit];
+				v = suitValue[suit];
 			}
 		}
-		if (hasMatch && scores[s] < 30.5)
+		if (hasMatch && v < 30.5)
 		{
-			scores[s] = 30.5;
+			v = 30.5;
 		}
-		if (scores[s] < leastScore)
+		handValues[s] = v;
+		if (v < lastHandValue)
 		{
-			leastScore = scores[s];
+			lastHandValue = v;
 		}
 	}
 	for (size_t s = 0; s < NUM_SEATS; s++)
 	{
-		if (scores[s] == leastScore)
+		if (handValues[s] == lastHandValue)
 		{
 			game.players[s].brain->numLosses += 1;
 		}
-		game.players[s].brain->totalScore += scores[s];
+		game.players[s].brain->totalHandValue += handValues[s];
 	}
 }
 
 void Trainer::playRound()
 {
 	auto start = std::chrono::high_resolution_clock::now();
-	size_t count = 0;
 	std::random_device rd;
 	std::mt19937 rng(rd());
 
@@ -365,7 +366,7 @@ void Trainer::playRound()
 			{
 				if (s == 0)
 				{
-					std::cout << char('A' + p) << i << ""
+					std::cout << brain->personality << brain->serialNumber << ""
 						" plays";
 				}
 				else
@@ -497,7 +498,7 @@ void Trainer::playRound()
 		start = end;
 	}
 
-	// Verify and score all of the games.
+	// Verify and tally all of the games.
 	for (size_t g = 0; g < games.size(); g ++)
 	{
 		if (g == 0)
@@ -505,14 +506,55 @@ void Trainer::playRound()
 			debugPrintGameState(games[g], gameState[g].data());
 		}
 		assertCorrectGameState(games[g], gameState[g].data());
-		scoreGame(games[g], gameState[g].data());
+		tallyGameResult(games[g], gameState[g].data());
+	}
+
+	// Timing:
+	{
+		auto end = std::chrono::high_resolution_clock::now();
+		int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+			end - start).count();
+		std::cout << "Tallying took " << elapsed << "ms"
+			"" << std::endl;
+		start = end;
+	}
+}
+
+void Trainer::sortBrains()
+{
+	auto start = std::chrono::high_resolution_clock::now();
+
+	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+	{
+		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
+		{
+			auto& brain = _brainsPerPersonality[p][i];
+			// Main objective: lose as few games as possible.
+			int num = 0;
+			for (size_t s = 0; s < NUM_SEATS; s++)
+			{
+				num += brain->numGamesPerSeat[s];
+			}
+			brain->objectiveScore = 1000.0 * (num - brain->numLosses) / num;
+		}
 	}
 
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
+		// Sort the brains from least losses ot mos
+		std::sort(_brainsPerPersonality[p].begin(),
+			_brainsPerPersonality[p].end(),
+			[](const auto& a, const auto& b) {
+				return (a->objectiveScore > b->objectiveScore);
+			});
+	}
+
+	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+	{
+		std::cout << std::endl;
 		int pSurv = 0;
 		int pNum = 0;
-		float pScore = 0;
+		float pTotalHandValue = 0;
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
 			auto& brain = _brainsPerPersonality[p][i];
@@ -522,24 +564,26 @@ void Trainer::playRound()
 				num += brain->numGamesPerSeat[s];
 			}
 			int surv = num - brain->numLosses;
-			float score = brain->totalScore;
-			std::cout << char('A' + p) << i << " survived"
-				" " << (0.001 * int(100 * 1000 * surv / num)) << "%"
+			std::cout << (i + 1) << ":\t"
+				"" << brain->personality << brain->serialNumber << ""
+				" scored " << (0.1 * int(10 * brain->objectiveScore)) << ""
+				", survived"
+				" " << (0.1 * int(100 * 10 * surv / num)) << "%"
 				" (" << surv << "/" << num << ")"
-				" and scored"
-				" " << (0.001 * int(1000 * score / num)) << ""
-				" (" << score << " total)"
+				" and had average hand value "
+				" " << (0.1 * int(10 * brain->totalHandValue / num)) << ""
+				" (" << brain->totalHandValue << " total)"
 				"" << std::endl;
 			pSurv += surv;
 			pNum += num;
-			pScore += score;
+			pTotalHandValue += brain->totalHandValue;
 		}
-		std::cout << char('A' + p) << " survived"
-			" " << (0.001 * int(100 * 1000 * pSurv / pNum)) << "%"
+		std::cout << "Overall, " << char('A' + p) << " survived"
+			" " << (0.1 * int(100 * 10 * pSurv / pNum)) << "%"
 			" (" << pSurv << "/" << pNum << ")"
-			" and scored"
-			" " << (0.001 * int(1000 * pScore / pNum)) << ""
-			" (" << pScore << " total)"
+			" and had average hand value "
+			" " << (0.1 * int(10 * pTotalHandValue / pNum)) << ""
+			" (" << pTotalHandValue << " total)"
 			"" << std::endl;
 	}
 
@@ -548,7 +592,29 @@ void Trainer::playRound()
 		auto end = std::chrono::high_resolution_clock::now();
 		int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
 			end - start).count();
-		std::cout << "Scoring took " << elapsed << "ms"
+		std::cout << "Sorting brains took " << elapsed << "ms"
+			"" << std::endl;
+		start = end;
+	}
+}
+
+void Trainer::evolveBrains()
+{
+	auto start = std::chrono::high_resolution_clock::now();
+	std::random_device rd;
+	std::mt19937 rng(rd());
+
+	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+	{
+		// TODO
+	}
+
+	// Timing:
+	{
+		auto end = std::chrono::high_resolution_clock::now();
+		int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+			end - start).count();
+		std::cout << "Evolving brains took " << elapsed << "ms"
 			"" << std::endl;
 		start = end;
 	}
@@ -571,7 +637,8 @@ void Trainer::train()
 	{
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
-			_brainsPerPersonality[p][i] = std::make_shared<Brain>();
+			char personality = char('A' + p);
+			_brainsPerPersonality[p][i] = std::make_shared<Brain>(personality);
 		}
 	}
 
@@ -592,6 +659,8 @@ void Trainer::train()
 		std::cout << "########################################" << std::endl;
 
 		playRound();
+		sortBrains();
+		evolveBrains();
 
 		std::cout << "########################################" << std::endl;
 		std::cout << "ROUND " << _round << std::endl;

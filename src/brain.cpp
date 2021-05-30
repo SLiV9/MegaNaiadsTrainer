@@ -3,8 +3,12 @@
 #include "module.hpp"
 
 
-Brain::Brain() :
-	_module(new Module())
+static size_t _brainSerialNumber = 0;
+
+Brain::Brain(char p) :
+	_module(new Module()),
+	personality(p),
+	serialNumber(++_brainSerialNumber)
 {
 	if (ENABLE_CUDA) _module->to(torch::kCUDA, torch::kHalf);
 	else _module->to(torch::kFloat);
