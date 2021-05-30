@@ -214,6 +214,7 @@ inline void updateGameState(Game& game,
 		}
 	}
 
+	bool isStateChanged = false;
 	if (tableCardWeight > passWeight && ownCardWeight > passWeight)
 	{
 		// Normal move.
@@ -223,21 +224,7 @@ inline void updateGameState(Game& game,
 		state[(1 + activeSeat) * NUM_CARDS + ownCard] = 0;
 		state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + tableCard] = 1;
 		state[(1 + NUM_SEATS + activeSeat) * NUM_CARDS + ownCard] = 0;
-		for (size_t s = 0; s < NUM_SEATS; s++)
-		{
-			auto& viewTensor = game.players[s].brain->viewTensorPerSeat[s][
-				game.players[s].relativeGameOffset];
-			viewTensor[tableCard] = 0;
-			viewTensor[ownCard] = 1;
-			int relhand = (activeSeat - s + NUM_SEATS) % NUM_SEATS;
-			viewTensor[relhand * NUM_CARDS + tableCard] = 1;
-			viewTensor[relhand * NUM_CARDS + ownCard] = 0;
-			if (s == activeSeat)
-			{
-				viewTensor[(1 + NUM_SEATS) * NUM_CARDS + tableCard] = 1;
-				viewTensor[(1 + NUM_SEATS) * NUM_CARDS + ownCard] = 0;
-			}
-		}
+		isStateChanged = true;
 
 		// If all players but one have passed, the game ends after
 		// that player's next turn.
@@ -259,36 +246,46 @@ inline void updateGameState(Game& game,
 				state[c] = state[(1 + activeSeat) * NUM_CARDS + c];
 				state[(1 + activeSeat) * NUM_CARDS + c] = swap;
 			}
-			for (size_t s = 0; s < NUM_SEATS; s++)
-			{
-				auto& viewTensor = game.players[s].brain->viewTensorPerSeat[s][
-					game.players[s].relativeGameOffset];
-				int relhand = (activeSeat - s + NUM_SEATS) % NUM_SEATS;
-				for (size_t c = 0; c < NUM_CARDS; c++)
-				{
-					if (state[c] > 0)
-					{
-						if (s == activeSeat)
-						{
-							viewTensor[(1 + NUM_SEATS) * NUM_CARDS + c] = 0;
-						}
-						viewTensor[c] = 1;
-						viewTensor[relhand * NUM_CARDS + c] = 0;
-					}
-					else if (state[(1 + activeSeat) * NUM_CARDS + c] > 0)
-					{
-						if (s == activeSeat)
-						{
-							viewTensor[(1 + NUM_SEATS) * NUM_CARDS + c] = 1;
-						}
-						viewTensor[c] = 0;
-						viewTensor[relhand * NUM_CARDS + c] = 1;
-					}
-				}
-			}
+			isStateChanged = true;
 		}
 
 		game.players[activeSeat].hasPassed = true;
+	}
+
+	if (isStateChanged)
+	{
+		for (size_t s = 0; s < NUM_SEATS; s++)
+		{
+			std::array<uint8_t, NUM_VIEW_SETS * NUM_CARDS> buffer;
+			for (size_t c = 0; c < NUM_CARDS; c++)
+			{
+				buffer[c] = state[c];
+				buffer[NUM_CARDS + c] = state[(1 + s) * NUM_CARDS + c];
+				for (size_t t = 0; t < NUM_SEATS; t++)
+				{
+					if (t == s) continue;
+					int relhand = (1 + ((t + NUM_SEATS - s) % NUM_SEATS));
+					buffer[relhand * NUM_CARDS + c] =
+						state[(1 + t) * NUM_CARDS + c]
+							* state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
+				}
+				buffer[(1 + NUM_SEATS) * NUM_CARDS + c] =
+					state[(1 + NUM_SEATS + s) * NUM_CARDS + c];
+			}
+			torch::Tensor bufferTensor = torch::from_blob(
+				buffer.data(), int(buffer.size()), torch::kByte);
+			if (ENABLE_CUDA)
+			{
+				bufferTensor = bufferTensor.to(torch::kCUDA, torch::kHalf);
+			}
+			else
+			{
+				bufferTensor = bufferTensor.to(torch::kFloat);
+			}
+			auto& viewTensor = game.players[s].brain->viewTensorPerSeat[s][
+				game.players[s].relativeGameOffset];
+			viewTensor.copy_(bufferTensor, /*non_blocking=*/true);
+		}
 	}
 }
 
@@ -459,7 +456,7 @@ void Trainer::playRound()
 	}
 
 	std::cout << "Playing " << games.size() << " games..." << std::endl;
-	size_t maxTurnsPerPlayer = 20;
+	size_t maxTurnsPerPlayer = 10;
 	bool allFinished = false;
 	for (size_t t = 0; t < maxTurnsPerPlayer && !allFinished; t++)
 	{
@@ -483,15 +480,19 @@ void Trainer::playRound()
 				"..." << std::endl;
 
 			// Use the results to change the game state.
-			allFinished = true;
+			size_t numUnfinished = 0;
 			for (size_t g = 0; g < games.size(); g++)
 			{
 				updateGameState(games[g], gameState[g].data(), s);
 				if (games[g].numPassed() < NUM_SEATS)
 				{
-					allFinished = false;
+					numUnfinished += 1;
 				}
 			}
+			allFinished = (numUnfinished == 0);
+
+			std::cout << "Still " << numUnfinished << " games"
+				" left unfinished." << std::endl;
 
 			// Verify some of the games.
 			for (size_t g = 0; g < games.size();
