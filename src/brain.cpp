@@ -30,7 +30,6 @@ Brain::Brain(char personality) :
 
 void Brain::reset(size_t seat)
 {
-	assert(seat < NUM_SEATS);
 	size_t n = numGamesPerSeat[seat] * NUM_VIEW_SETS * NUM_CARDS;
 	viewBufferPerSeat[seat].resize(n, 0);
 	viewTensorPerSeat[seat] = torch::zeros(
@@ -59,13 +58,11 @@ void Brain::evaluate(size_t seat)
 		return;
 	}
 
-	assert(seat < NUM_SEATS);
 	_module->forward(viewTensorPerSeat[seat], outputTensorPerSeat[seat]);
 }
 
 void Brain::cycle(size_t seat)
 {
-	assert(seat < NUM_SEATS);
 	torch::Tensor bufferTensor = torch::from_blob(
 		viewBufferPerSeat[seat].data(),
 		{
@@ -145,7 +142,6 @@ void Brain::spliceWith(const Brain& other)
 	}
 	std::shuffle(yesOrNo.begin(), yesOrNo.end(), rng);
 
-	assert(other._module);
 	const std::vector<torch::Tensor>& otherParams = other._module->parameters();
 	for (size_t i = 0; i < myParams.size() && i < otherParams.size(); i++)
 	{

@@ -128,13 +128,19 @@ inline void assertCorrectGameState(const Game& game,
 		{
 			if (state[hand * NUM_CARDS + c] > 0)
 			{
-				assert(!isUsed);
+				if (isUsed)
+				{
+					throw std::runtime_error("assertion failed");
+				}
 				isUsed = true;
 				numUsed += 1;
 			}
 		}
 	}
-	assert(numUsed == NUM_CARDS_PER_HAND * (NUM_SEATS + 1));
+	if (numUsed != NUM_CARDS_PER_HAND * (NUM_SEATS + 1))
+	{
+		throw std::runtime_error("assertion failed");
+	}
 }
 
 inline void updateGameState(Game& game,
@@ -345,7 +351,6 @@ void Trainer::playRound()
 
 	for (Game& game : games)
 	{
-		assert(NUM_PERSONALITIES == NUM_SEATS);
 		for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 		{
 			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
@@ -398,7 +403,6 @@ void Trainer::playRound()
 		{
 			for (int _z = 0; _z < NUM_CARDS_PER_HAND; _z++)
 			{
-				assert(deckoffset < NUM_CARDS);
 				uint8_t card = deck[deckoffset++];
 				gameState[g][hand * NUM_CARDS + card] = 1;
 			}
@@ -469,13 +473,13 @@ void Trainer::playRound()
 			for (size_t g = 0; g < games.size(); g++)
 			{
 				updateGameState(games[g], gameState[g].data(), s);
+				if (games[g].players[s].hasPassed
+					&& games[g].players[s].turnOfPass < 0)
+				{
+					games[g].players[s].turnOfPass = t;
+				}
 				if (games[g].numPassed() < NUM_SEATS)
 				{
-					if (games[g].players[s].hasPassed
-						&& games[g].players[s].turnOfPass < 0)
-					{
-						games[g].players[s].turnOfPass = t;
-					}
 					numUnfinished += 1;
 				}
 			}
@@ -491,7 +495,7 @@ void Trainer::playRound()
 		{
 			if (games[g].players[s].turnOfPass < 0)
 			{
-				games[g].players[s].turnOfPass = maxTurnsPerPlayer * NUM_SEATS;
+				games[g].players[s].turnOfPass = maxTurnsPerPlayer;
 			}
 		}
 	}
