@@ -20,6 +20,8 @@ public:
 	std::array<torch::Tensor, NUM_SEATS> viewTensorPerSeat;
 	std::array<torch::Tensor, NUM_SEATS> outputTensorPerSeat;
 	std::array<std::vector<float>, NUM_SEATS> viewBufferPerSeat;
+	int numLosses = 0;
+	float totalScore = 0;
 
 public:
 	Brain();

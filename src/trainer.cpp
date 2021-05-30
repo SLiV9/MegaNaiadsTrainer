@@ -249,6 +249,66 @@ inline void updateViewBuffers(const Game& game,
 	}
 }
 
+inline void scoreGame(const Game& game,
+	const uint8_t* state)
+{
+	float leastScore = 100;
+	std::array<float, NUM_SEATS> scores = { 0 };
+	for (size_t s = 0; s < NUM_SEATS; s++)
+	{
+		std::array<uint8_t, NUM_CARDS_PER_HAND> hand;
+		{
+			size_t h = 0;
+			for (size_t c = 0; c < NUM_CARDS; c++)
+			{
+				if (state[(1 + s) * NUM_CARDS + c] > 0)
+				{
+					hand[h++] = c;
+				}
+			}
+		}
+		bool hasMatch = true;
+		uint8_t matchingFace = hand[0] % NUM_FACES_PER_SUIT;
+		std::array<float, NUM_SUITS> scorePerSuit = { 0 };
+		for (size_t h = 0; h < NUM_CARDS_PER_HAND; h++)
+		{
+			uint8_t suit = hand[h] / NUM_FACES_PER_SUIT;
+			uint8_t face = hand[h] % NUM_FACES_PER_SUIT;
+			constexpr int SCORE_PER_FACE[NUM_FACES_PER_SUIT] = {
+				7, 8, 9, 10, 10, 10, 10, 11
+			};
+			scorePerSuit[suit] += SCORE_PER_FACE[face];
+			if (h > 0)
+			{
+				hasMatch = hasMatch && (face == matchingFace);
+			}
+		}
+		for (size_t suit = 0; suit < NUM_SUITS; suit++)
+		{
+			if (scores[s] < scorePerSuit[suit])
+			{
+				scores[s] = scorePerSuit[suit];
+			}
+		}
+		if (hasMatch && scores[s] < 30.5)
+		{
+			scores[s] = 30.5;
+		}
+		if (scores[s] < leastScore)
+		{
+			leastScore = scores[s];
+		}
+	}
+	for (size_t s = 0; s < NUM_SEATS; s++)
+	{
+		if (scores[s] == leastScore)
+		{
+			game.players[s].brain->numLosses += 1;
+		}
+		game.players[s].brain->totalScore += scores[s];
+	}
+}
+
 void Trainer::playRound()
 {
 	auto start = std::chrono::high_resolution_clock::now();
@@ -322,6 +382,7 @@ void Trainer::playRound()
 
 				brain->reset(s);
 			}
+			brain->numLosses = 0;
 		}
 	}
 
@@ -436,7 +497,7 @@ void Trainer::playRound()
 		start = end;
 	}
 
-	// Verify some of the games.
+	// Verify and score all of the games.
 	for (size_t g = 0; g < games.size(); g ++)
 	{
 		if (g == 0)
@@ -444,6 +505,42 @@ void Trainer::playRound()
 			debugPrintGameState(games[g], gameState[g].data());
 		}
 		assertCorrectGameState(games[g], gameState[g].data());
+		scoreGame(games[g], gameState[g].data());
+	}
+
+	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+	{
+		int pSurv = 0;
+		int pNum = 0;
+		float pScore = 0;
+		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
+		{
+			auto& brain = _brainsPerPersonality[p][i];
+			int num = 0;
+			for (size_t s = 0; s < NUM_SEATS; s++)
+			{
+				num += brain->numGamesPerSeat[s];
+			}
+			int surv = num - brain->numLosses;
+			float score = brain->totalScore;
+			std::cout << char('A' + p) << i << " survived"
+				" " << (0.001 * int(100 * 1000 * surv / num)) << "%"
+				" (" << surv << "/" << num << ")"
+				" and scored"
+				" " << (0.001 * int(1000 * score / num)) << ""
+				" (" << score << " total)"
+				"" << std::endl;
+			pSurv += surv;
+			pNum += num;
+			pScore += score;
+		}
+		std::cout << char('A' + p) << " survived"
+			" " << (0.001 * int(100 * 1000 * pSurv / pNum)) << "%"
+			" (" << pSurv << "/" << pNum << ")"
+			" and scored"
+			" " << (0.001 * int(1000 * pScore / pNum)) << ""
+			" (" << pScore << " total)"
+			"" << std::endl;
 	}
 
 	// Timing:
@@ -451,7 +548,7 @@ void Trainer::playRound()
 		auto end = std::chrono::high_resolution_clock::now();
 		int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
 			end - start).count();
-		std::cout << "Verifying took " << elapsed << "ms"
+		std::cout << "Scoring took " << elapsed << "ms"
 			"" << std::endl;
 		start = end;
 	}
