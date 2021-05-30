@@ -25,6 +25,8 @@ public:
 	int numLosses = 0;
 	int totalTurnsBeforePass = 0;
 	float totalHandValue = 0;
+	float totalLosingHandValue = 0;
+	float totalSurvivingHandValue = 0;
 	float objectiveScore = 0;
 
 private:

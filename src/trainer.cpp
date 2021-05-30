@@ -322,6 +322,11 @@ inline void tallyGameResult(const Game& game,
 		if (handValues[s] == leastHandValue)
 		{
 			brain->numLosses += 1;
+			brain->totalLosingHandValue += handValues[s];
+		}
+		else
+		{
+			brain->totalSurvivingHandValue += handValues[s];
 		}
 		brain->totalHandValue += handValues[s];
 		brain->totalTurnsBeforePass += game.players[s].turnOfPass;
@@ -385,6 +390,8 @@ void Trainer::playRound()
 			brain->numLosses = 0;
 			brain->totalTurnsBeforePass = 0;
 			brain->totalHandValue = 0;
+			brain->totalLosingHandValue = 0;
+			brain->totalSurvivingHandValue = 0;
 			brain->objectiveScore = 0;
 		}
 	}
@@ -573,6 +580,8 @@ void Trainer::sortBrains()
 		int pNum = 0;
 		int pTotalTurnsBeforePass = 0;
 		float pTotalHandValue = 0;
+		float pTotalLossValue = 0;
+		float pTotalWinValue = 0;
 		float pTotalScore = 0;
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
@@ -585,6 +594,10 @@ void Trainer::sortBrains()
 			int surv = num - brain->numLosses;
 			float averageTurnsBeforePass = 1.0
 				* brain->totalTurnsBeforePass / num;
+			float averageWinValue = brain->totalSurvivingHandValue
+				/ std::max(0, surv);
+			float averageLossValue = brain->totalLosingHandValue
+				/ std::max(0, num - surv);
 			std::cout << (i + 1) << ":\t"
 				"" << brain->personality << brain->serialNumber << ""
 				" scored " << (0.1 * int(10 * brain->objectiveScore)) << ""
@@ -595,15 +608,21 @@ void Trainer::sortBrains()
 				" " << (0.1 * int(10 * averageTurnsBeforePass)) << " turns"
 				" and had average hand value"
 				" " << (0.1 * int(10 * brain->totalHandValue / num)) << ""
+				" (win: " << (0.1 * int(10 * averageWinValue)) << ""
+				", loss: " << (0.1 * int(10 * averageLossValue)) << ")"
 				"" << std::endl;
 			pSurv += surv;
 			pNum += num;
 			pTotalTurnsBeforePass += brain->totalTurnsBeforePass;
 			pTotalHandValue += brain->totalHandValue;
+			pTotalWinValue += brain->totalSurvivingHandValue;
+			pTotalLossValue += brain->totalLosingHandValue;
 			pTotalScore += brain->objectiveScore;
 		}
 		float pAverageScore = pTotalScore / NUM_BRAINS_PER_PERSONALITY;
 		float pAverageTurnsBeforePass = 1.0 * pTotalTurnsBeforePass / pNum;
+		float pAverageWinValue = pTotalWinValue / std::max(0, pSurv);
+		float pAverageLossValue = pTotalLossValue / std::max(0, pNum - pSurv);
 		std::cout << "Overall, " << char('A' + p) << ""
 			" scored " << (0.1 * int(10 * pAverageScore)) << ""
 			", survived"
@@ -613,6 +632,8 @@ void Trainer::sortBrains()
 			" " << (0.1 * int(10 * pAverageTurnsBeforePass)) << " turns"
 			" and had average hand value"
 			" " << (0.1 * int(10 * pTotalHandValue / pNum)) << ""
+			" (win: " << (0.1 * int(10 * pAverageWinValue)) << ""
+			", loss: " << (0.1 * int(10 * pAverageLossValue)) << ")"
 			"" << std::endl;
 		std::cout << std::endl;
 	}
