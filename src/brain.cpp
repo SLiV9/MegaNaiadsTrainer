@@ -14,6 +14,14 @@ void Brain::reset(size_t seat)
 {
 	size_t n = numGamesPerSeat[seat] * NUM_VIEW_SETS * NUM_CARDS;
 	viewBufferPerSeat[seat].resize(n, 0);
+	viewTensorPerSeat[seat] = torch::zeros(
+			{int(numGamesPerSeat[seat]), int(NUM_VIEW_SETS * NUM_CARDS)},
+			torch::kFloat);
+	if (ENABLE_CUDA)
+	{
+		viewTensorPerSeat[seat] = viewTensorPerSeat[seat].contiguous().to(
+			torch::kCUDA, torch::kHalf, /*non_blocking=*/true);
+	}
 }
 
 void Brain::evaluate(size_t seat)
@@ -33,7 +41,11 @@ void Brain::cycle(size_t seat)
 		torch::kFloat);
 	if (ENABLE_CUDA)
 	{
-		viewTensorPerSeat[seat] = bufferTensor.to(
+		viewTensorPerSeat[seat] = bufferTensor.contiguous().to(
 			torch::kCUDA, torch::kHalf, /*non_blocking=*/true);
+	}
+	else
+	{
+		viewTensorPerSeat[seat] = bufferTensor;
 	}
 }

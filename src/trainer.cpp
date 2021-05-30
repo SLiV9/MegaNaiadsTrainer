@@ -83,6 +83,17 @@ inline void debugPrintGameState(const Game& game,
 		{
 			std::cout << " <passed>";
 		}
+		std::cout << "\t\t(has discarded ";
+		for (size_t c = 0; c < NUM_CARDS; c++)
+		{
+			if (state[(1 + s) * NUM_CARDS + c] < 1
+				&& state[(1 + NUM_SEATS + s) * NUM_CARDS + c] > 0)
+			{
+				debugPrintCard(c);
+				std::cout << " ";
+			}
+		}
+		std::cout << ")";
 		std::cout << std::endl;
 	}
 	for (size_t i = 0; i < NUM_STATE_SETS * NUM_CARDS; i++)
@@ -91,7 +102,11 @@ inline void debugPrintGameState(const Game& game,
 		{
 			std::cout << std::endl;
 		}
-		std::cout << (0.001 * int(1000 * state[i])) << " ";
+		std::cout << int(state[i]) << " ";
+		if (i % NUM_FACES_PER_SUIT == 0)
+		{
+			std::cout << "  ";
+		}
 	}
 	std::cout << std::endl;
 	std::cout << "----------------------" << std::endl;
@@ -198,36 +213,33 @@ inline void updateGameState(Game& game,
 }
 
 inline void updateViewBuffers(const Game& game,
-	const uint8_t* state)
+	const uint8_t* state, size_t activeSeat)
 {
-	for (size_t s = 0; s < NUM_SEATS; s++)
+	auto& brain = game.players[activeSeat].brain;
+	size_t offset = game.players[activeSeat].relativeGameOffset;
+	float* rawbuffer = brain->viewBufferPerSeat[activeSeat].data();
+	float* buffer = &rawbuffer[offset * NUM_VIEW_SETS * NUM_CARDS];
+	for (size_t c = 0; c < NUM_CARDS; c++)
 	{
-		auto& brain = game.players[s].brain;
-		size_t offset = game.players[s].relativeGameOffset;
-		float* rawbuffer = brain->viewBufferPerSeat[s].data();
-		float* buffer = &rawbuffer[offset * NUM_VIEW_SETS * NUM_CARDS];
+		buffer[c] = state[c];
+		buffer[NUM_CARDS + c] = state[(1 + activeSeat) * NUM_CARDS + c];
+	}
+	for (size_t t = 0; t < NUM_SEATS; t++)
+	{
+		int tt = (1 + ((t + NUM_SEATS - activeSeat) % NUM_SEATS));
 		for (size_t c = 0; c < NUM_CARDS; c++)
 		{
-			buffer[c] = state[c];
-			buffer[NUM_CARDS + c] = state[(1 + s) * NUM_CARDS + c];
-		}
-		for (size_t t = 0; t < NUM_SEATS; t++)
-		{
-			int tt = (1 + ((t + NUM_SEATS - s) % NUM_SEATS));
-			for (size_t c = 0; c < NUM_CARDS; c++)
+			buffer[(1 + NUM_SEATS + tt) * NUM_CARDS + c] =
+				state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
+			if (t != activeSeat)
 			{
-				buffer[(1 + NUM_SEATS + tt) * NUM_CARDS + c] =
-					state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
-				if (t != s)
-				{
-					buffer[(1 + tt) * NUM_CARDS + c] =
-						state[(1 + t) * NUM_CARDS + c]
-							* state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
-				}
+				buffer[(1 + tt) * NUM_CARDS + c] =
+					state[(1 + t) * NUM_CARDS + c]
+						* state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
 			}
-			buffer[(1 + NUM_SEATS + NUM_SEATS) * NUM_CARDS + tt] =
-				game.players[t].hasPassed;
 		}
+		buffer[(1 + NUM_SEATS + NUM_SEATS) * NUM_CARDS + tt] =
+			game.players[t].hasPassed;
 	}
 }
 
@@ -326,16 +338,6 @@ void Trainer::playRound()
 				gameState[g][hand * NUM_CARDS + card] = 1;
 			}
 		}
-		updateViewBuffers(games[g], gameState[g].data());
-	}
-
-	// Prepare the views for the first turn.
-	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
-	{
-		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
-		{
-			_brainsPerPersonality[p][i]->cycle(0);
-		}
 	}
 
 	// Timing:
@@ -374,6 +376,23 @@ void Trainer::playRound()
 	{
 		for (size_t s = 0; s < NUM_SEATS && !allFinished; s++)
 		{
+			std::cout << "Preparing turn " << (t * NUM_SEATS + s) << ""
+				" (seat " << s << ")"
+				"..." << std::endl;
+
+			// Prepare the views for this turn.
+			for (size_t g = 0; g < games.size(); g++)
+			{
+				updateViewBuffers(games[g], gameState[g].data(), s);
+			}
+			for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+			{
+				for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
+				{
+					_brainsPerPersonality[p][i]->cycle(s);
+				}
+			}
+
 			std::cout << "Evaluating turn " << (t * NUM_SEATS + s) << ""
 				" (seat " << s << ")"
 				"..." << std::endl;
@@ -396,7 +415,6 @@ void Trainer::playRound()
 			for (size_t g = 0; g < games.size(); g++)
 			{
 				updateGameState(games[g], gameState[g].data(), s);
-				updateViewBuffers(games[g], gameState[g].data());
 				if (games[g].numPassed() < NUM_SEATS)
 				{
 					numUnfinished += 1;
@@ -406,15 +424,6 @@ void Trainer::playRound()
 
 			std::cout << "Still " << numUnfinished << " games"
 				" left unfinished." << std::endl;
-
-			// Prepare the views for the next turn.
-			for (size_t p = 0; p < NUM_PERSONALITIES; p++)
-			{
-				for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
-				{
-					_brainsPerPersonality[p][i]->cycle(s);
-				}
-			}
 
 			// Verify some of the games.
 			for (size_t g = 0; g < games.size();
