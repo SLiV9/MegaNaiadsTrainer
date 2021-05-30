@@ -26,6 +26,9 @@ public:
 	float totalHandValue = 0;
 	float objectiveScore = 0;
 
+private:
+	explicit Brain(char personality, std::shared_ptr<Module> module);
+
 public:
 	explicit Brain(char personality);
 	Brain(const Brain&) = delete;
@@ -37,4 +40,8 @@ public:
 	void reset(size_t seat);
 	void evaluate(size_t seat);
 	void cycle(size_t seat);
+
+	Brain clone();
+	void mutate(float deviationFactor);
+	void spliceWith(const Brain& other);
 };

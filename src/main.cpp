@@ -27,7 +27,7 @@ void run(int argc, char* argv[])
 	std::cout << std::endl << "Done!" << std::endl;
 }
 
-#define TRY true
+#define TRY false
 
 int main(int argc, char* argv[])
 {

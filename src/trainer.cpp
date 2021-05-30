@@ -384,6 +384,8 @@ void Trainer::playRound()
 				brain->reset(s);
 			}
 			brain->numLosses = 0;
+			brain->totalHandValue = 0;
+			brain->objectiveScore = 0;
 		}
 	}
 
@@ -549,9 +551,9 @@ void Trainer::sortBrains()
 			});
 	}
 
+	std::cout << std::endl;
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
-		std::cout << std::endl;
 		int pSurv = 0;
 		int pNum = 0;
 		float pTotalHandValue = 0;
@@ -585,6 +587,7 @@ void Trainer::sortBrains()
 			" " << (0.1 * int(10 * pTotalHandValue / pNum)) << ""
 			" (" << pTotalHandValue << " total)"
 			"" << std::endl;
+		std::cout << std::endl;
 	}
 
 	// Timing:
@@ -601,12 +604,35 @@ void Trainer::sortBrains()
 void Trainer::evolveBrains()
 {
 	auto start = std::chrono::high_resolution_clock::now();
-	std::random_device rd;
-	std::mt19937 rng(rd());
 
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
-		// TODO
+		auto& pool = _brainsPerPersonality[p];
+		// The top 40% of brains (per pool) is kept as is.
+		size_t chunkSize = NUM_BRAINS_PER_PERSONALITY / 5;
+		// The bottom 60% of brains will be culled.
+		size_t i = NUM_BRAINS_PER_PERSONALITY - 1;
+		// A fifth of the new pool will be mutations of the best fifth.
+		// The amount of mutation decreases over time.
+		float deviationFactor = 0.5 / sqrtf(_round + 1);
+		for (size_t k = 0; k < chunkSize && i > 2 * chunkSize; k++, i--)
+		{
+			pool[i] = std::make_shared<Brain>(pool[k]->clone());
+			pool[i]->mutate(deviationFactor);
+		}
+		// A fifth of the new pool will consist of the offspring of
+		// pairs of brains from the best fifth and second fifth.
+		for (size_t k = 0; k < chunkSize && i > 2 * chunkSize; k++, i--)
+		{
+			pool[i] = std::make_shared<Brain>(pool[k]->clone());
+			pool[i]->spliceWith(*pool[chunkSize + k]);
+		}
+		// The middle fifth of the new pool is spliced with
+		// brains from the best fifth.
+		for (size_t k = 0; k < chunkSize && i > 2 * chunkSize; k++, i--)
+		{
+			pool[i]->spliceWith(*pool[k]);
+		}
 	}
 
 	// Timing:
@@ -651,7 +677,7 @@ void Trainer::train()
 			"" << std::endl;
 	}
 
-	size_t numRounds = 1;
+	size_t numRounds = 100;
 	for (; _round < numRounds; _round++)
 	{
 		std::cout << "########################################" << std::endl;
