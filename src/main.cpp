@@ -22,7 +22,12 @@ void run(int argc, char* argv[])
 	std::cout << "Session to resume:" << std::endl;
 	std::cin >> session;
 
-	if (!session.empty())
+	if (session.size() <= 1)
+	{
+		std::cout << "Starting anew..." << std::endl;
+		session = "";
+	}
+	else
 	{
 		std::cout << "Round to resume:" << std::endl;
 		std::cin >> round;

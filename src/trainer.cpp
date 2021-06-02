@@ -50,11 +50,20 @@ Trainer::Trainer() :
 
 inline void debugPrintCard(size_t card)
 {
+	if (card >= NUM_SUITS * NUM_FACES_PER_SUIT)
+	{
+		switch (card - NUM_SUITS * NUM_FACES_PER_SUIT)
+		{
+			case 0: std::cout << "FCA"; return; break;
+			case 1: std::cout << "JKR"; return; break;
+			case 2: std::cout << "H12"; return; break;
+			case 3: std::cout << "FSA"; return; break;
+		}
+	}
 	const char* SUITS[NUM_SUITS] = {"C", "D", "H", "S"};
 	const char* FACES[NUM_FACES_PER_SUIT] = {"7", "8", "9", "10",
 		"J", "Q", "K", "A"};
-	std::cout << SUITS[card / NUM_FACES_PER_SUIT]
-		<< FACES[card % NUM_FACES_PER_SUIT];
+	std::cout << SUITS[card % NUM_SUITS] << FACES[card / NUM_SUITS];
 }
 
 inline void debugPrintGameState(const Game& game,
@@ -163,7 +172,7 @@ inline void updateGameState(Game& game,
 	torch::Tensor outputTensorCPU = outputTensor.to(torch::kCPU,
 		torch::kFloat);
 	const float* output = outputTensorCPU.data_ptr<float>();
-	float passWeight = std::max(0.0f, output[2 * NUM_CARDS]);
+	float passWeight = output[2 * NUM_CARDS];
 	bool swapOnPass = false;
 	if (output[2 * NUM_CARDS + 1] > passWeight)
 	{
@@ -196,7 +205,8 @@ inline void updateGameState(Game& game,
 	if (tableCardWeight > passWeight && ownCardWeight > passWeight)
 	{
 		game.players[activeSeat].brain->totalConfidence +=
-			std::min(std::min(tableCardWeight, ownCardWeight), 1.0f);
+			std::max(0.0f,
+				std::min(std::min(tableCardWeight, ownCardWeight), 1.0f));
 
 		// Normal move.
 		state[tableCard] = 0;
@@ -216,7 +226,7 @@ inline void updateGameState(Game& game,
 	else
 	{
 		game.players[activeSeat].brain->totalConfidence +=
-			std::min(passWeight, 1.0f);
+			std::max(0.0f, std::min(passWeight, 1.0f));
 
 		if (swapOnPass)
 		{
@@ -291,16 +301,29 @@ inline void tallyGameResult(const Game& game,
 			}
 		}
 		bool hasMatch = true;
-		uint8_t matchingFace = hand[0] % NUM_FACES_PER_SUIT;
+		uint8_t matchingFace = hand[0] / NUM_SUITS;
 		std::array<float, NUM_SUITS> suitValue = { 0 };
 		for (size_t h = 0; h < NUM_CARDS_PER_HAND; h++)
 		{
-			uint8_t suit = hand[h] / NUM_FACES_PER_SUIT;
-			uint8_t face = hand[h] % NUM_FACES_PER_SUIT;
-			constexpr int VALUE_PER_FACE[NUM_FACES_PER_SUIT] = {
-				7, 8, 9, 10, 10, 10, 10, 11
-			};
-			suitValue[suit] += VALUE_PER_FACE[face];
+			uint8_t suit = hand[h] % NUM_SUITS;
+			uint8_t face = hand[h] / NUM_SUITS;
+			if (face < NUM_FACES_PER_SUIT)
+			{
+				constexpr int VALUE_PER_FACE[NUM_FACES_PER_SUIT] = {
+					7, 8, 9, 10, 10, 10, 10, 11
+				};
+				suitValue[suit] += VALUE_PER_FACE[face];
+			}
+			else
+			{
+				switch (hand[h] - NUM_SUITS * NUM_FACES_PER_SUIT)
+				{
+					case 0: suitValue[suit] += 11; break;
+					case 1: /*joker has no value*/; break;
+					case 2: suitValue[suit] += 12; break;
+					case 3: suitValue[suit] += 11; break;
+				}
+			}
 			if (h > 0)
 			{
 				hasMatch = hasMatch && (face == matchingFace);
@@ -859,8 +882,8 @@ void Trainer::train()
 			"" << std::endl;
 	}
 
-	size_t numRounds = 1000;
-	for (; _round < numRounds; _round++)
+	size_t numRounds = 10000;
+	for (; _round <= numRounds; _round++)
 	{
 		std::cout << "########################################" << std::endl;
 		std::cout << "ROUND " << _round << std::endl;
@@ -868,7 +891,7 @@ void Trainer::train()
 
 		playRound();
 		sortBrains();
-		if (_round % 25 == 0)
+		if (_round % 100 == 0)
 		{
 			saveBrains();
 		}
