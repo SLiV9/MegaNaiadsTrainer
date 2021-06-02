@@ -109,12 +109,6 @@ void Brain::evaluate(size_t seat)
 				return;
 			}
 			break;
-			case Personality::GREEDY:
-			{
-				// TODO implement greedy AI
-				return;
-			}
-			break;
 			default:
 			{
 				// Keep output as all zeros.

@@ -48,6 +48,9 @@ Trainer::Trainer() :
 	torch::set_num_threads(4);
 }
 
+inline float determineHandValue(const Game& game,
+	const uint8_t* state, size_t s);
+
 inline void debugPrintCard(size_t card)
 {
 	if (card >= NUM_SUITS * NUM_FACES_PER_SUIT)
@@ -106,6 +109,7 @@ inline void debugPrintGameState(const Game& game,
 		{
 			std::cout << " <passed>";
 		}
+		std::cout << "   " << determineHandValue(game, state, s);
 		std::cout << "   discarded: ";
 		for (size_t c = 0; c < NUM_CARDS; c++)
 		{
@@ -167,6 +171,21 @@ inline void assertCorrectGameState(const Game& game,
 	}
 }
 
+inline void fakeMove(uint8_t* state, size_t activeSeat, uint8_t a, uint8_t b)
+{
+	// Make it so a is the tableCard and b is the ownCard.
+	if (state[b] > 0)
+	{
+		std::swap(a, b);
+	}
+	// Swap the cards.
+	state[a] = 0;
+	state[b] = 1;
+	state[(1 + activeSeat) * NUM_CARDS + a] = 1;
+	state[(1 + activeSeat) * NUM_CARDS + b] = 0;
+	// But do not update vision because that is irreversible.
+}
+
 inline void updateGameState(Game& game,
 	uint8_t* state, size_t activeSeat)
 {
@@ -207,6 +226,71 @@ inline void updateGameState(Game& game,
 			ownCard = c;
 			ownCardWeight = output[NUM_CARDS + c];
 		}
+	}
+
+	if (brain->personality == Personality::GREEDY)
+	{
+		passWeight = determineHandValue(game, state, activeSeat);
+		tableCardWeight = 0;
+		std::vector<uint8_t> tableCards;
+		std::vector<uint8_t> ownCards;
+		for (uint8_t c = 0; c < NUM_CARDS; c++)
+		{
+			if (state[c] > 0)
+			{
+				tableCards.push_back(c);
+				for (uint8_t x : ownCards)
+				{
+					fakeMove(state, activeSeat, c, x);
+					float value = determineHandValue(game, state, activeSeat);
+					fakeMove(state, activeSeat, c, x);
+					if (value > tableCardWeight)
+					{
+						tableCard = c;
+						ownCard = x;
+						tableCardWeight = value;
+					}
+				}
+			}
+			else if (state[(1 + activeSeat) * NUM_CARDS + c] > 0)
+			{
+				ownCards.push_back(c);
+				for (uint8_t x : tableCards)
+				{
+					fakeMove(state, activeSeat, c, x);
+					float value = determineHandValue(game, state, activeSeat);
+					fakeMove(state, activeSeat, c, x);
+					if (value > passWeight)
+					{
+						ownCard = c;
+						tableCard = x;
+						tableCardWeight = value;
+					}
+				}
+			}
+		}
+		{
+			for (size_t i = 0; i < ownCards.size(); i++)
+			{
+				fakeMove(state, activeSeat, ownCards[i], tableCards[i]);
+			}
+			float value = determineHandValue(game, state, activeSeat);
+			if (value >= 25 && value > passWeight && value > tableCardWeight)
+			{
+				swapOnPass = true;
+				passWeight = value;
+			}
+			for (size_t i = 0; i < ownCards.size(); i++)
+			{
+				fakeMove(state, activeSeat, ownCards[i], tableCards[i]);
+			}
+		}
+		// If we can make a move without losing much value, keep playing.
+		if (passWeight < 14 || tableCardWeight + 1 > passWeight)
+		{
+			passWeight = -1;
+		}
+		ownCardWeight = tableCardWeight;
 	}
 
 	if (tableCardWeight > passWeight && ownCardWeight > passWeight)
@@ -300,97 +384,122 @@ inline void updateViewBuffers(const Game& game,
 	}
 }
 
+inline float determineHandValue(const Game& game,
+	const uint8_t* state, size_t s)
+{
+	std::array<uint8_t, NUM_CARDS_PER_HAND> hand;
+	{
+		size_t h = 0;
+		for (size_t c = 0; c < NUM_CARDS; c++)
+		{
+			if (state[(1 + s) * NUM_CARDS + c] > 0)
+			{
+				hand[h++] = c;
+			}
+		}
+	}
+	bool hasMatch = true;
+	uint8_t matchingFace = 0;
+	std::array<float, NUM_SUITS> suitValue = { 0 };
+	for (size_t h = 0; h < NUM_CARDS_PER_HAND; h++)
+	{
+		uint8_t suit = hand[h] % NUM_SUITS;
+		uint8_t face = hand[h] / NUM_SUITS;
+		if (face < NUM_FACES_PER_SUIT)
+		{
+			constexpr int VALUE_PER_FACE[NUM_FACES_PER_SUIT] = {
+				7, 8, 9, 10, 10, 10, 10, 11
+			};
+			suitValue[suit] += VALUE_PER_FACE[face];
+		}
+		else
+		{
+			switch (hand[h] - NUM_SUITS * NUM_FACES_PER_SUIT)
+			{
+				case 0:
+				case 3:
+				{
+					// suit = suit;
+					face = NUM_FACES_PER_SUIT - 1; // ace
+					suitValue[suit] += 11;
+				}
+				break;
+				case 1:
+				{
+					face = 255;
+					// joker has no value
+				}
+				break;
+				case 2:
+				{
+					// suit = suit;
+					face = NUM_FACES_PER_SUIT;
+					suitValue[suit] += 12;
+				}
+				break;
+			}
+		}
+		if (h > 0)
+		{
+			hasMatch = hasMatch && (face == matchingFace);
+		}
+		else
+		{
+			matchingFace = face;
+		}
+	}
+
+	if (game.players[s].brain->personality == Personality::ILLUSIONIST)
+	{
+		// Up to one non-Ace clubs becomes a spade.
+		// Up to one non-Ace diamond becomes a heart.
+		if (suitValue[0] <= 10 && suitValue[3] >= 14)
+		{
+			suitValue[3] += suitValue[0];
+		}
+		else if (suitValue[1] <= 10 && suitValue[2] >= 14)
+		{
+			suitValue[2] += suitValue[1];
+		}
+	}
+
+	float v = 0;
+	for (size_t suit = 0; suit < NUM_SUITS; suit++)
+	{
+		if (v < suitValue[suit])
+		{
+			v = suitValue[suit];
+		}
+	}
+
+	if (hasMatch && matchingFace == NUM_FACES_PER_SUIT - 1)
+	{
+		return 31.0f;
+	}
+	else if (hasMatch && v < 30.5f)
+	{
+		return 30.5f;
+	}
+	else if (game.players[s].brain->personality == Personality::FOOL)
+	{
+		// The Fool is trained to only receive points for sets,
+		// so that when playing in the real game it will only try
+		// to collect sets and foolishly discard aces and trumps.
+		return 0;
+	}
+	else
+	{
+		return v;
+	}
+}
+
 inline void tallyGameResult(const Game& game,
 	const uint8_t* state)
 {
 	std::array<float, NUM_SEATS> handValues = { 0 };
 	for (size_t s = 0; s < NUM_SEATS; s++)
 	{
-		std::array<uint8_t, NUM_CARDS_PER_HAND> hand;
-		{
-			size_t h = 0;
-			for (size_t c = 0; c < NUM_CARDS; c++)
-			{
-				if (state[(1 + s) * NUM_CARDS + c] > 0)
-				{
-					hand[h++] = c;
-				}
-			}
-		}
-		bool hasMatch = true;
-		uint8_t matchingFace = 0;
-		std::array<float, NUM_SUITS> suitValue = { 0 };
-		for (size_t h = 0; h < NUM_CARDS_PER_HAND; h++)
-		{
-			uint8_t suit = hand[h] % NUM_SUITS;
-			uint8_t face = hand[h] / NUM_SUITS;
-			if (face < NUM_FACES_PER_SUIT)
-			{
-				constexpr int VALUE_PER_FACE[NUM_FACES_PER_SUIT] = {
-					7, 8, 9, 10, 10, 10, 10, 11
-				};
-				suitValue[suit] += VALUE_PER_FACE[face];
-			}
-			else
-			{
-				switch (hand[h] - NUM_SUITS * NUM_FACES_PER_SUIT)
-				{
-					case 0:
-					case 3:
-					{
-						// suit = suit;
-						face = NUM_FACES_PER_SUIT - 1; // ace
-						suitValue[suit] += 11;
-					}
-					break;
-					case 1:
-					{
-						face = 255;
-						// joker has no value
-					}
-					break;
-					case 2:
-					{
-						// suit = suit;
-						face = NUM_FACES_PER_SUIT;
-						suitValue[suit] += 12;
-					}
-					break;
-				}
-			}
-			if (h > 0)
-			{
-				hasMatch = hasMatch && (face == matchingFace);
-			}
-			else
-			{
-				matchingFace = face;
-			}
-		}
-		float v = 0;
-		for (size_t suit = 0; suit < NUM_SUITS; suit++)
-		{
-			if (v < suitValue[suit])
-			{
-				v = suitValue[suit];
-			}
-		}
-		if (hasMatch && matchingFace == NUM_FACES_PER_SUIT - 1)
-		{
-			v = 31.0;
-		}
-		else if (hasMatch && v < 30.5)
-		{
-			v = 30.5;
-		}
-		else if (game.players[s].brain->personality == Personality::FOOL)
-		{
-			// The Fool is trained to only receive points for sets,
-			// so that when playing in the real game it will only try
-			// to collect sets and foolishly discard aces and trumps.
-			v = 0;
-		}
-		handValues[s] = v;
+		handValues[s] = determineHandValue(game, state, s);
 	}
 	float leastHandValue = 100;
 	for (size_t s = 0; s < NUM_SEATS; s++)
@@ -454,23 +563,32 @@ void Trainer::playRound()
 	size_t numGamesPerBrain = 1000;
 	size_t numNormalGames = NUM_BRAINS_PER_PERSONALITY * numGamesPerBrain
 		* normies.size() / NUM_SEATS;
-	size_t numGoonGames = numGamesPerBrain;
-	size_t numDuelGames = numGamesPerBrain;
+	size_t numGoonGames = 2 * numGamesPerBrain;
+	size_t numDuelGames = 2 * numGamesPerBrain;
 	games.resize(numNormalGames + numGoonGames + numDuelGames);
 
-	size_t countGoonGames = 0;
-	size_t countDuelGames = 0;
+	size_t remGoonGames = numGoonGames;
+	size_t remDuelGames = numDuelGames;
 	for (Game& game : games)
 	{
 		// Each game includes (a stand in for) the player.
+		if ((remGoonGames > 0 || remDuelGames > 0) && (rng() % 2) == 0)
+		{
+			size_t p = (size_t) ((rng() % 2)
+				? Personality::GREEDY
+				: Personality::DUMMY);
+			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
+			game.players[0].brain = _brainsPerPersonality[p][i];
+		}
+		else
 		{
 			size_t p = (size_t) Personality::PLAYER;
 			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
 			game.players[0].brain = _brainsPerPersonality[p][i];
 		}
-		if (countGoonGames < numGoonGames)
+		if (remGoonGames > 0)
 		{
-			countGoonGames++;
+			remGoonGames--;
 			size_t p = (size_t) Personality::BOSS;
 			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
 			game.players[1].brain = _brainsPerPersonality[p][i];
@@ -481,9 +599,9 @@ void Trainer::playRound()
 				game.players[s].brain = _brainsPerPersonality[p][i];
 			}
 		}
-		else if (countDuelGames < numDuelGames)
+		else if (remDuelGames > 0)
 		{
-			countDuelGames++;
+			remDuelGames--;
 			size_t p = (size_t) Personality::DUELIST;
 			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
 			game.players[1].brain = _brainsPerPersonality[p][i];
