@@ -67,7 +67,7 @@ inline void debugPrintCard(size_t card)
 }
 
 inline void debugPrintGameState(const Game& game,
-	const uint8_t* state)
+	const uint8_t* state, bool full = false)
 {
 	std::cout << "----------------------" << std::endl;
 	std::cout << "Table: ";
@@ -82,8 +82,13 @@ inline void debugPrintGameState(const Game& game,
 	std::cout << std::endl;
 	for (size_t s = 0; s < NUM_SEATS; s++)
 	{
+		if (game.players[s].brain->personality == Personality::EMPTY)
+		{
+			continue;
+		}
 		std::cout << "Seat " << s << ""
-			" (" << game.players[s].brain->personality << ")"
+			" (" << Brain::personalityName(
+				game.players[s].brain->personality) << ")"
 			": ";
 		for (size_t c = 0; c < NUM_CARDS; c++)
 		{
@@ -113,7 +118,7 @@ inline void debugPrintGameState(const Game& game,
 		}
 		std::cout << std::endl;
 	}
-	if (false)
+	if (full)
 	{
 		for (size_t i = 0; i < NUM_STATE_SETS * NUM_CARDS; i++)
 		{
@@ -121,7 +126,7 @@ inline void debugPrintGameState(const Game& game,
 			{
 				std::cout << std::endl;
 			}
-			else if (i > 0 && i % NUM_FACES_PER_SUIT == 0)
+			else if (i > 0 && (i % NUM_CARDS) % NUM_SUITS == 0)
 			{
 				std::cout << "  ";
 			}
@@ -145,6 +150,8 @@ inline void assertCorrectGameState(const Game& game,
 			{
 				if (isUsed)
 				{
+					debugPrintGameState(game, state, /*full=*/true);
+					std::cerr << "card " << c << " used twice" << std::endl;
 					throw std::runtime_error("assertion failed");
 				}
 				isUsed = true;
@@ -154,6 +161,8 @@ inline void assertCorrectGameState(const Game& game,
 	}
 	if (numUsed != NUM_CARDS_PER_HAND * (NUM_SEATS + 1))
 	{
+		debugPrintGameState(game, state, /*full=*/true);
+		std::cerr << "cards missing" << std::endl;
 		throw std::runtime_error("assertion failed");
 	}
 }
@@ -180,13 +189,12 @@ inline void updateGameState(Game& game,
 		passWeight = output[2 * NUM_CARDS + 1];
 	}
 	size_t tableCard = 0;
-	float tableCardWeight = 0.0f;
+	float tableCardWeight = passWeight - 1;
 	size_t ownCard = 0;
-	float ownCardWeight = 0.0f;
+	float ownCardWeight = passWeight - 1;
 	for (size_t c = 0; c < NUM_CARDS; c++)
 	{
 		if (state[c] > 0
-			&& output[c] > passWeight
 			&& output[c] > tableCardWeight)
 		{
 			tableCard = c;
@@ -194,7 +202,6 @@ inline void updateGameState(Game& game,
 		}
 
 		if (state[(1 + activeSeat) * NUM_CARDS + c] > 0
-			&& output[NUM_CARDS + c] > passWeight
 			&& output[NUM_CARDS + c] > ownCardWeight)
 		{
 			ownCard = c;
@@ -262,7 +269,6 @@ inline void updateViewBuffers(const Game& game,
 	for (size_t c = 0; c < NUM_CARDS; c++)
 	{
 		buffer[c] = state[c];
-		buffer[NUM_CARDS + c] = state[(1 + activeSeat) * NUM_CARDS + c];
 	}
 	for (size_t t = 0; t < NUM_SEATS; t++)
 	{
@@ -271,15 +277,26 @@ inline void updateViewBuffers(const Game& game,
 		{
 			buffer[(1 + NUM_SEATS + tt) * NUM_CARDS + c] =
 				state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
-			if (t != activeSeat)
+			if (t == activeSeat
+				|| brain->personality == Personality::SPY)
+			{
+				buffer[(1 + tt) * NUM_CARDS + c] =
+					state[(1 + activeSeat) * NUM_CARDS + c];
+			}
+			else
 			{
 				buffer[(1 + tt) * NUM_CARDS + c] =
 					state[(1 + t) * NUM_CARDS + c]
 						* state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
 			}
 		}
-		buffer[(1 + NUM_SEATS + NUM_SEATS) * NUM_CARDS + tt] =
-			game.players[t].hasPassed;
+		Personality other = game.players[t].brain->personality;
+		size_t offset = (1 + NUM_SEATS + NUM_SEATS) * NUM_CARDS;
+		buffer[offset + tt] = (other == Personality::EMPTY);
+		offset += NUM_SEATS;
+		buffer[offset + tt] = game.players[t].hasPassed;
+		offset += NUM_SEATS;
+		buffer[offset + tt] = (other == Personality::PLAYER);
 	}
 }
 
@@ -301,7 +318,7 @@ inline void tallyGameResult(const Game& game,
 			}
 		}
 		bool hasMatch = true;
-		uint8_t matchingFace = hand[0] / NUM_SUITS;
+		uint8_t matchingFace = 0;
 		std::array<float, NUM_SUITS> suitValue = { 0 };
 		for (size_t h = 0; h < NUM_CARDS_PER_HAND; h++)
 		{
@@ -318,15 +335,36 @@ inline void tallyGameResult(const Game& game,
 			{
 				switch (hand[h] - NUM_SUITS * NUM_FACES_PER_SUIT)
 				{
-					case 0: suitValue[suit] += 11; break;
-					case 1: /*joker has no value*/; break;
-					case 2: suitValue[suit] += 12; break;
-					case 3: suitValue[suit] += 11; break;
+					case 0:
+					case 3:
+					{
+						// suit = suit;
+						face = NUM_FACES_PER_SUIT - 1; // ace
+						suitValue[suit] += 11;
+					}
+					break;
+					case 1:
+					{
+						face = 255;
+						// joker has no value
+					}
+					break;
+					case 2:
+					{
+						// suit = suit;
+						face = NUM_FACES_PER_SUIT;
+						suitValue[suit] += 12;
+					}
+					break;
 				}
 			}
 			if (h > 0)
 			{
 				hasMatch = hasMatch && (face == matchingFace);
+			}
+			else
+			{
+				matchingFace = face;
 			}
 		}
 		float v = 0;
@@ -337,16 +375,28 @@ inline void tallyGameResult(const Game& game,
 				v = suitValue[suit];
 			}
 		}
-		if (hasMatch && v < 30.5)
+		if (hasMatch && matchingFace == NUM_FACES_PER_SUIT - 1)
+		{
+			v = 31.0;
+		}
+		else if (hasMatch && v < 30.5)
 		{
 			v = 30.5;
+		}
+		else if (game.players[s].brain->personality == Personality::FOOL)
+		{
+			// The Fool is trained to only receive points for sets,
+			// so that when playing in the real game it will only try
+			// to collect sets and foolishly discard aces and trumps.
+			v = 0;
 		}
 		handValues[s] = v;
 	}
 	float leastHandValue = 100;
 	for (size_t s = 0; s < NUM_SEATS; s++)
 	{
-		if (handValues[s] < leastHandValue)
+		if (handValues[s] < leastHandValue
+			&& game.players[s].brain->personality != Personality::EMPTY)
 		{
 			leastHandValue = handValues[s];
 		}
@@ -358,6 +408,13 @@ inline void tallyGameResult(const Game& game,
 		{
 			brain->numLosses += 1;
 			brain->totalLosingHandValue += handValues[s];
+			if (brain->personality == Personality::BOSS)
+			{
+				for (size_t t = 0; t < NUM_SEATS; t++)
+				{
+					game.players[t].brain->numBossLosses += 1;
+				}
+			}
 		}
 		else
 		{
@@ -385,16 +442,67 @@ void Trainer::playRound()
 		}
 	}
 
+	std::array<uint8_t, NUM_NORMAL_PERSONALITIES + 2> normies;
+	for (size_t p = 0; p < NUM_NORMAL_PERSONALITIES; p++)
+	{
+		normies[p] = p;
+	}
+	normies[NUM_NORMAL_PERSONALITIES] = (size_t) Personality::GREEDY;
+	normies[NUM_NORMAL_PERSONALITIES + 1] = (size_t) Personality::DUMMY;
+
 	std::vector<Game> games;
 	size_t numGamesPerBrain = 1000;
-	games.resize(NUM_BRAINS_PER_PERSONALITY * numGamesPerBrain);
+	size_t numNormalGames = NUM_BRAINS_PER_PERSONALITY * numGamesPerBrain
+		* normies.size() / NUM_SEATS;
+	size_t numGoonGames = numGamesPerBrain;
+	size_t numDuelGames = numGamesPerBrain;
+	games.resize(numNormalGames + numGoonGames + numDuelGames);
 
+	size_t countGoonGames = 0;
+	size_t countDuelGames = 0;
 	for (Game& game : games)
 	{
-		for (size_t p = 0; p < NUM_PERSONALITIES; p++)
+		// Each game includes (a stand in for) the player.
 		{
+			size_t p = (size_t) Personality::PLAYER;
 			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
-			game.players[p].brain = _brainsPerPersonality[p][i];
+			game.players[0].brain = _brainsPerPersonality[p][i];
+		}
+		if (countGoonGames < numGoonGames)
+		{
+			countGoonGames++;
+			size_t p = (size_t) Personality::BOSS;
+			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
+			game.players[1].brain = _brainsPerPersonality[p][i];
+			for (size_t s = 2; s < NUM_SEATS; s++)
+			{
+				p = (size_t) Personality::GOON;
+				i = rng() % NUM_BRAINS_PER_PERSONALITY;
+				game.players[s].brain = _brainsPerPersonality[p][i];
+			}
+		}
+		else if (countDuelGames < numDuelGames)
+		{
+			countDuelGames++;
+			size_t p = (size_t) Personality::DUELIST;
+			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
+			game.players[1].brain = _brainsPerPersonality[p][i];
+			for (size_t s = 2; s < NUM_SEATS; s++)
+			{
+				p = (size_t) Personality::EMPTY;
+				game.players[s].brain = _brainsPerPersonality[p][0];
+				game.players[s].hasPassed = true;
+			}
+		}
+		else
+		{
+			std::shuffle(normies.begin(), normies.end(), rng);
+			for (size_t s = 1; s < NUM_SEATS; s++)
+			{
+				size_t p = normies[s];
+				size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
+				game.players[s].brain = _brainsPerPersonality[p][i];
+			}
 		}
 		std::shuffle(game.players.begin(), game.players.end(), rng);
 		for (size_t s = 0; s < NUM_SEATS; s++)
@@ -423,6 +531,7 @@ void Trainer::playRound()
 				brain->reset(s);
 			}
 			brain->numLosses = 0;
+			brain->numBossLosses = 0;
 			brain->totalTurnsPlayed = 0;
 			brain->totalConfidence = 0;
 			brain->totalHandValue = 0;
@@ -432,9 +541,9 @@ void Trainer::playRound()
 		}
 	}
 
-	// Deal the cards.
-	std::array<uint8_t, NUM_CARDS> deck;
-	for (size_t c = 0; c < NUM_CARDS; c++)
+	// Deal the cards from a normal deck of playing cards.
+	std::array<uint8_t, NUM_SUITS * NUM_FACES_PER_SUIT> deck;
+	for (size_t c = 0; c < NUM_SUITS * NUM_FACES_PER_SUIT; c++)
 	{
 		deck[c] = c;
 	}
@@ -447,6 +556,29 @@ void Trainer::playRound()
 			for (int _z = 0; _z < NUM_CARDS_PER_HAND; _z++)
 			{
 				uint8_t card = deck[deckoffset++];
+				if (_z == 0 && hand > 0)
+				{
+					size_t s = hand - 1;
+					switch (games[g].players[s].brain->personality)
+					{
+						case Personality::FORGER:
+						{
+							card = NUM_FACES_PER_SUIT * NUM_SUITS
+								+ ((rng() % 2 == 0) ? 0 : 3);
+						}
+						break;
+						case Personality::ARTIST:
+						{
+							card = NUM_FACES_PER_SUIT * NUM_SUITS + 2;
+						}
+						break;
+						case Personality::TRICKSTER:
+						{
+							card = NUM_FACES_PER_SUIT * NUM_SUITS + 1;
+						}
+						break;
+					}
+				}
 				gameState[g][hand * NUM_CARDS + card] = 1;
 			}
 		}
@@ -463,6 +595,8 @@ void Trainer::playRound()
 	}
 
 	std::cout << "Playing " << games.size() << " games..." << std::endl;
+	size_t shownGameIndex = rng() % games.size();
+	std::cout << "(Showing game #" << shownGameIndex << ".)" << std::endl;
 	size_t maxTurnsPerPlayer = 10;
 	bool allFinished = false;
 	for (size_t t = 0; t < maxTurnsPerPlayer && !allFinished; t++)
@@ -476,14 +610,15 @@ void Trainer::playRound()
 				"...\t" << std::flush;
 
 			// Verify some of the games.
-			for (size_t g = 0; g < games.size();
-				g += (1 + (rng() % numGamesPerBrain)))
+			if (games[shownGameIndex].numPassed() < NUM_SEATS)
 			{
-				if (g == 0 && games[g].numPassed() < NUM_SEATS)
-				{
-					std::cout << std::endl;
-					debugPrintGameState(games[g], gameState[g].data());
-				}
+				std::cout << std::endl;
+				debugPrintGameState(games[shownGameIndex],
+					gameState[shownGameIndex].data());
+			}
+			for (size_t g = 0; g < games.size();
+				g += (1 + (rng() % (games.size() / 100))))
+			{
 				assertCorrectGameState(games[g], gameState[g].data());
 			}
 
@@ -559,7 +694,7 @@ void Trainer::playRound()
 	// Verify and tally all of the games.
 	for (size_t g = 0; g < games.size(); g ++)
 	{
-		if (g == 0)
+		if (g == shownGameIndex)
 		{
 			debugPrintGameState(games[g], gameState[g].data());
 		}
@@ -595,9 +730,21 @@ void Trainer::sortBrains()
 			}
 			brain->objectiveScore = 1000.0 * (num - brain->numLosses) / num;
 			// Bonus objective: get highest possible hand value.
-			float handValue = (brain->totalHandValue / num);
-			float maxHandValue = 31.0;
-			brain->objectiveScore += 1000 * (handValue / maxHandValue);
+			//float handValue = (brain->totalHandValue / num);
+			//float maxHandValue = 31.0;
+			//brain->objectiveScore += 1000 * (handValue / maxHandValue);
+			switch (brain->personality)
+			{
+				case Personality::GOON:
+				{
+					// Alternative objective: make sure the Boss does not lose.
+					brain->objectiveScore = 1000.0
+						* (num - brain->numBossLosses) / num;
+				}
+				break;
+				default:
+				break;
+			}
 		}
 	}
 
@@ -614,6 +761,10 @@ void Trainer::sortBrains()
 	std::cout << std::endl;
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
+		if (((Personality) p) == Personality::EMPTY)
+		{
+			continue;
+		}
 		int pSurv = 0;
 		int pNum = 0;
 		int pTotalTurnsPlayed = 0;
@@ -630,6 +781,15 @@ void Trainer::sortBrains()
 			{
 				num += brain->numGamesPerSeat[s];
 			}
+			if (num == 0)
+			{
+				std::cout << (i + 1) << ":\t"
+					"" << Brain::personalityName(brain->personality) << ""
+					"" << brain->serialNumber << ""
+					" (" << brain->motherNumber << "+" << brain->fatherNumber << ")"
+					" did not play any games!" << std::endl;
+				continue;
+			}
 			int surv = num - brain->numLosses;
 			float averageTurnsBeforePass = 1.0
 				* brain->totalTurnsPlayed / num;
@@ -640,19 +800,19 @@ void Trainer::sortBrains()
 			float averageLossValue = brain->totalLosingHandValue
 				/ std::max(1, num - surv);
 			std::cout << (i + 1) << ":\t"
-				"" << brain->personality << brain->serialNumber << ""
+				"" << Brain::personalityName(brain->personality) << ""
+				"" << brain->serialNumber << ""
 				" (" << brain->motherNumber << "+" << brain->fatherNumber << ")"
 				" scored " << (0.1 * int(10 * brain->objectiveScore)) << ""
 				", survived"
 				" " << (0.1 * int(100 * 10 * surv / num)) << "%"
-				" of games"
 				", played"
 				" " << (0.1 * int(10 * averageTurnsBeforePass)) << " turns"
-				" and had average hand value"
+				", hand value"
 				" " << (0.1 * int(10 * brain->totalHandValue / num)) << ""
 				" (win: " << (0.1 * int(10 * averageWinValue)) << ""
 				", loss: " << (0.1 * int(10 * averageLossValue)) << ")"
-				" with confidence"
+				", confidence"
 				" " << (0.1 * int(100 * 10 * averageConfidence)) << "%"
 				"" << std::endl;
 			pSurv += surv;
@@ -664,13 +824,18 @@ void Trainer::sortBrains()
 			pTotalLossValue += brain->totalLosingHandValue;
 			pTotalScore += brain->objectiveScore;
 		}
+		if (pNum == 0)
+		{
+			continue;
+		}
 		float pAverageScore = pTotalScore / NUM_BRAINS_PER_PERSONALITY;
 		float pAverageTurnsBeforePass = 1.0 * pTotalTurnsPlayed / pNum;
 		float pAverageConfidence = pTotalConfidence
 			/ std::max(1, pTotalTurnsPlayed);
 		float pAverageWinValue = pTotalWinValue / std::max(1, pSurv);
 		float pAverageLossValue = pTotalLossValue / std::max(1, pNum - pSurv);
-		std::cout << "Overall, " << char('A' + p) << ""
+		std::cout << "Overall,"
+			" " << Brain::personalityName((Personality) p) << ""
 			" scored " << (0.1 * int(10 * pAverageScore)) << ""
 			", survived"
 			" " << (0.1 * int(100 * 10 * pSurv / pNum)) << "%"
@@ -704,6 +869,10 @@ void Trainer::evolveBrains()
 
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
+		if (!Brain::isNeural((Personality) p))
+		{
+			continue;
+		}
 		auto& pool = _brainsPerPersonality[p];
 		// The top 40% of brains (per pool) is kept as is.
 		size_t chunkSize = NUM_BRAINS_PER_PERSONALITY / 5;
@@ -774,7 +943,7 @@ void Trainer::saveBrains()
 			auto& brain = _brainsPerPersonality[p][i];
 			{
 				std::string name;
-				name += brain->personality;
+				name += Brain::personalityName(brain->personality);
 				name += "_" + std::to_string(brain->serialNumber);
 				name += "_" + std::to_string(brain->motherNumber);
 				name += "_" + std::to_string(brain->fatherNumber);
@@ -821,21 +990,31 @@ void Trainer::resume(std::string session, size_t round)
 		std::stringstream strm = std::stringstream(line);
 		std::string personality;
 		if (!std::getline(strm, personality, '_')
-			|| personality.size() != 1
-			|| personality[0] < 'A'
-			|| personality[0] >= char('A' + NUM_PERSONALITIES))
+			|| personality.empty())
 		{
 			std::cerr << "Ignoring '" << line << "'" << std::endl;
 			continue;
 		}
-		size_t p = personality[0] - 'A';
+		size_t p = NUM_PERSONALITIES + 1000;
+		for (size_t pp = 0; pp < NUM_PERSONALITIES; pp++)
+		{
+			if (personality == Brain::personalityName((Personality) pp))
+			{
+				p = pp;
+			}
+		}
+		if (p >= NUM_PERSONALITIES)
+		{
+			std::cerr << "Ignoring unknown '" << line << "'" << std::endl;
+			continue;
+		}
 		size_t i = countPerPersonality[p];
 		if (i >= NUM_BRAINS_PER_PERSONALITY)
 		{
 			std::cerr << "Ignoring excess for " << personality << std::endl;
 			continue;
 		}
-		_brainsPerPersonality[p][i] = std::make_shared<Brain>(personality[0]);
+		_brainsPerPersonality[p][i] = std::make_shared<Brain>((Personality) p);
 		_brainsPerPersonality[p][i]->load(folder + "/" + name + ".pth.tar");
 		countPerPersonality[p] += 1;
 	}
@@ -843,7 +1022,8 @@ void Trainer::resume(std::string session, size_t round)
 	{
 		if (countPerPersonality[p] < NUM_BRAINS_PER_PERSONALITY)
 		{
-			std::cerr << "Adding brains for " << char('A' + p) << std::endl;
+			std::cerr << "Adding brains for "
+				<< Brain::personalityName((Personality) p) << std::endl;
 		}
 	}
 
@@ -868,7 +1048,7 @@ void Trainer::train()
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
 			if (_brainsPerPersonality[p][i]) continue;
-			char personality = char('A' + p);
+			Personality personality = (Personality) p;
 			_brainsPerPersonality[p][i] = std::make_shared<Brain>(personality);
 		}
 	}

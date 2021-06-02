@@ -11,7 +11,55 @@ static torch::NoGradGuard no_grad;
 
 static size_t _brainSerialNumber = 0;
 
-Brain::Brain(char p, size_t mNum, size_t fNum,
+const char* Brain::personalityName(Personality p)
+{
+	switch (p)
+	{
+		case Personality::NORMAL1: return "A";
+		case Personality::NORMAL2: return "B";
+		case Personality::NORMAL3: return "C";
+		case Personality::PLAYER: return "X";
+		case Personality::FOOL: return "fool";
+		case Personality::ARTIST: return "artist";
+		case Personality::TRICKSTER: return "trickster";
+		case Personality::FORGER: return "forger";
+		case Personality::ILLUSIONIST: return "illusionist";
+		case Personality::SPY: return "spy";
+		case Personality::DRUNK: return "drunk";
+		case Personality::GOON: return "goon";
+		case Personality::BOSS: return "boss";
+		case Personality::DUELIST: return "duelist";
+		case Personality::GREEDY: return "greedy";
+		case Personality::DUMMY: return "dummy";
+		case Personality::EMPTY: return "empty";
+	}
+}
+
+bool Brain::isNeural(Personality p)
+{
+	switch (p)
+	{
+		case Personality::DRUNK: return false;
+		case Personality::GREEDY: return false;
+		case Personality::DUMMY: return false;
+		case Personality::EMPTY: return false;
+		default: return true;
+	}
+}
+
+inline std::shared_ptr<Module> createModuleBasedOnPersonality(Personality p)
+{
+	if (Brain::isNeural(p))
+	{
+		return std::make_shared<Module>();
+	}
+	else
+	{
+		return nullptr;
+	}
+}
+
+Brain::Brain(Personality p, size_t mNum, size_t fNum,
 		std::shared_ptr<Module> module) :
 	_module(module),
 	personality(p),
@@ -24,11 +72,9 @@ Brain::Brain(char p, size_t mNum, size_t fNum,
 	else _module->to(torch::kFloat);
 }
 
-Brain::Brain(char personality) :
+Brain::Brain(Personality personality) :
 	Brain(personality, 0, 0,
-		(personality == 'D')
-			? std::shared_ptr<Module>()
-			: std::make_shared<Module>()
+		createModuleBasedOnPersonality(personality)
 	)
 {}
 
@@ -51,14 +97,38 @@ void Brain::reset(size_t seat)
 
 void Brain::evaluate(size_t seat)
 {
+	if (!Brain::isNeural(personality))
+	{
+		switch (personality)
+		{
+			case Personality::DRUNK:
+			{
+				outputTensorPerSeat[seat] = torch::rand(
+					{int(numGamesPerSeat[seat]), int(ACTION_SIZE)},
+					torch::kFloat);
+				return;
+			}
+			break;
+			case Personality::GREEDY:
+			{
+				// TODO implement greedy AI
+				return;
+			}
+			break;
+			default:
+			{
+				// Keep output as all zeros.
+				return;
+			}
+			break;
+		}
+	}
+
 	if (!_module)
 	{
-		if (personality != 'D')
-		{
-			std::cerr << "missing module"
-				" for " << personality << serialNumber << ""
-				"" << std::endl;
-		}
+		std::cerr << "missing module"
+			" for " << personalityName(personality) << serialNumber << ""
+			"" << std::endl;
 		return;
 	}
 
@@ -111,10 +181,10 @@ void Brain::save(const std::string& filepath)
 {
 	if (!_module)
 	{
-		if (personality != 'D')
+		if (Brain::isNeural(personality))
 		{
 			std::cerr << "missing module"
-				" for " << personality << serialNumber << ""
+				" for " << personalityName(personality) << serialNumber << ""
 				"" << std::endl;
 		}
 		return;
@@ -137,10 +207,10 @@ void Brain::load(const std::string& filepath)
 {
 	if (!_module)
 	{
-		if (personality != 'D')
+		if (Brain::isNeural(personality))
 		{
 			std::cerr << "missing module"
-				" for " << personality << serialNumber << ""
+				" for " << personalityName(personality) << serialNumber << ""
 				"" << std::endl;
 		}
 		return;
@@ -184,10 +254,10 @@ void Brain::saveScan(const std::string& filepath)
 {
 	if (!_module)
 	{
-		if (personality != 'D')
+		if (Brain::isNeural(personality))
 		{
 			std::cerr << "missing module"
-				" for " << personality << serialNumber << ""
+				" for " << personalityName(personality) << serialNumber << ""
 				"" << std::endl;
 		}
 		return;

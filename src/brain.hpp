@@ -20,11 +20,12 @@ public:
 	std::array<torch::Tensor, NUM_SEATS> viewTensorPerSeat;
 	std::array<torch::Tensor, NUM_SEATS> outputTensorPerSeat;
 	std::array<std::vector<float>, NUM_SEATS> viewBufferPerSeat;
-	const char personality;
+	const Personality personality;
 	const size_t serialNumber;
 	const size_t motherNumber;
 	const size_t fatherNumber;
 	int numLosses = 0;
+	int numBossLosses = 0;
 	int totalTurnsPlayed = 0;
 	float totalConfidence = 0;
 	float totalHandValue = 0;
@@ -33,16 +34,20 @@ public:
 	float objectiveScore = 0;
 
 private:
-	explicit Brain(char personality, size_t motherNumber, size_t fatherNumber,
+	explicit Brain(Personality personality,
+		size_t motherNumber, size_t fatherNumber,
 		std::shared_ptr<Module> module);
 
 public:
-	explicit Brain(char personality);
+	explicit Brain(Personality personality);
 	Brain(const Brain&) = delete;
 	Brain(Brain&& other) = default;
 	Brain& operator=(const Brain&) = delete;
 	Brain& operator=(Brain&&) = default;
 	~Brain() = default;
+
+	static bool isNeural(Personality personality);
+	static const char* personalityName(Personality personality);
 
 	void reset(size_t seat);
 	void evaluate(size_t seat);
