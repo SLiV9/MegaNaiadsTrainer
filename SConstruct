@@ -98,8 +98,8 @@ env.Append(LIBPATH=[cpp_bindings_path + 'bin/'])
 env.Append(LIBS=[cpp_library])
 
 # link with implementation
-#env.Append(LIBPATH=[env['impl_path']])
-#env.Append(LIBS=['libmeganaiads'])
+env.Append(LIBPATH=[env['impl_path']])
+env.Append(LIBS=['libmeganaiads'])
 
 # tweak this if you want to use different folders, or more folders, to store your source code in.
 env.Append(CPPPATH=['src/'])

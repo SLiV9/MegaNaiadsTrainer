@@ -3,16 +3,13 @@
 #include <memory>
 #include <vector>
 
-//#include "lib.hpp"
+#include "lib.hpp"
 
 
 using namespace godot;
 
-/*
 Brain::Brain() :
 	_module(module_allocate(), module_deallocate)
-*/
-Brain::Brain()
 {}
 
 Brain::~Brain() = default;
@@ -41,8 +38,6 @@ void Brain::_ready()
 
 void Brain::load(const String& filepath)
 {
-	(void) filepath;
-/*
 	{
 		struct stat buffer;
 		if (stat(filepath.ascii().get_data(), &buffer) != 0)
@@ -52,12 +47,10 @@ void Brain::load(const String& filepath)
 	}
 
 	module_load(_module.get(), filepath.ascii().get_data());
-*/
 }
 
 void Brain::evaluate()
 {
-/*
 	std::vector<float> buffer;
 	buffer.resize(input.size(), 0);
 	for (int i = 0; i < input.size(); i++)
@@ -74,5 +67,4 @@ void Brain::evaluate()
 	wantsToSwap = (swap > 0);
 	tableCard = tc;
 	ownCard = oc;
-*/
 }

@@ -23,8 +23,7 @@ add_executable(trainer src/main.cpp
 set_target_properties(trainer PROPERTIES LINK_FLAGS "/DEBUG")
 target_link_libraries(trainer ${TORCH_LIBRARIES})
 
-add_library(libmeganaiads EXCLUDE_FROM_ALL SHARED src/lib.cpp
-	src/module.cpp)
+add_library(libmeganaiads EXCLUDE_FROM_ALL SHARED src/lib.cpp)
 target_compile_options(libmeganaiads PRIVATE "-fvisibility=hidden" "-fvisibility-inlines-hidden")
 target_link_options(libmeganaiads PRIVATE "-nodefaultlibs" "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections")
-target_link_libraries(libmeganaiads ${TORCH_LIBRARIES})
+#target_link_libraries(libmeganaiads ${TORCH_LIBRARIES})

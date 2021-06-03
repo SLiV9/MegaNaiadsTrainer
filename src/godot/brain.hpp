@@ -3,7 +3,7 @@
 #include "Godot.hpp"
 #include "Node.hpp"
 
-//#include "lib.hpp"
+#include "lib.hpp"
 
 
 class Module;
@@ -16,7 +16,7 @@ class Brain : public Node
 	GODOT_CLASS(Brain, Node)
 
 private:
-	//std::unique_ptr<Module, decltype(&module_deallocate)> _module;
+	std::unique_ptr<Module, decltype(&module_deallocate)> _module;
 
 public:
 	Array input;
