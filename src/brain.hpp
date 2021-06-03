@@ -26,6 +26,7 @@ public:
 	const size_t fatherNumber;
 	int numLosses = 0;
 	int numBossLosses = 0;
+	int numPlayerLosses = 0;
 	int totalTurnsPlayed = 0;
 	float totalConfidence = 0;
 	float totalHandValue = 0;

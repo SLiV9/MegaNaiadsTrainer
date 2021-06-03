@@ -524,6 +524,15 @@ inline void tallyGameResult(const Game& game,
 					game.players[t].brain->numBossLosses += 1;
 				}
 			}
+			else if (brain->personality == Personality::PLAYER
+				|| brain->personality == Personality::GREEDY
+				|| brain->personality == Personality::DUMMY)
+			{
+				for (size_t t = 0; t < NUM_SEATS; t++)
+				{
+					game.players[t].brain->numPlayerLosses += 1;
+				}
+			}
 		}
 		else
 		{
@@ -650,6 +659,7 @@ void Trainer::playRound()
 			}
 			brain->numLosses = 0;
 			brain->numBossLosses = 0;
+			brain->numPlayerLosses = 0;
 			brain->totalTurnsPlayed = 0;
 			brain->totalConfidence = 0;
 			brain->totalHandValue = 0;
@@ -848,9 +858,9 @@ void Trainer::sortBrains()
 			}
 			brain->objectiveScore = 1000.0 * (num - brain->numLosses) / num;
 			// Bonus objective: get highest possible hand value.
-			//float handValue = (brain->totalHandValue / num);
-			//float maxHandValue = 31.0;
-			//brain->objectiveScore += 1000 * (handValue / maxHandValue);
+			float handValue = (brain->totalHandValue / num);
+			float maxHandValue = 32.0;
+			brain->objectiveScore += 500 * (handValue / maxHandValue);
 			switch (brain->personality)
 			{
 				case Personality::GOON:
@@ -858,6 +868,9 @@ void Trainer::sortBrains()
 					// Alternative objective: make sure the Boss does not lose.
 					brain->objectiveScore = 1000.0
 						* (num - brain->numBossLosses) / num;
+					// Bonus objective: make sure the Player loses.
+					brain->objectiveScore += 500.0
+						* (num - brain->numPlayerLosses) / num;
 				}
 				break;
 				default:
