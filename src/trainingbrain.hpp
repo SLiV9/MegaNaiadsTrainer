@@ -56,7 +56,7 @@ public:
 	TrainingBrain makeMutation(double deviationFactor) const;
 	TrainingBrain makeOffspringWith(const TrainingBrain& other) const;
 
-	void save(const std::string& filepath);
+	void save(const std::string& filepath, bool forceCPU = false);
 	void load(const std::string& filepath);
 
 	void saveScan(const std::string& filepath);

@@ -49,7 +49,20 @@ void Brain::load(String filepath)
 		}
 	}
 
-	module_load(_module.get(), filepath.utf8().get_data());
+
+	try
+	{
+		module_load(_module.get(), filepath.utf8().get_data());
+	}
+	catch (std::exception& e)
+	{
+		std::cerr << "Exception in Brain::load(): "
+			<< e.what() << std::endl;
+	}
+	catch (...)
+	{
+		std::cerr << "Unknown error in Brain::load()" << std::endl;
+	}
 }
 
 void Brain::evaluate()
@@ -60,12 +73,29 @@ void Brain::evaluate()
 	{
 		buffer[i] = (float) input[i];
 	}
-	int pass = 0;
+
+	int pass = true;
 	int swap = 0;
 	int tc = 0;
 	int oc = 0;
-	module_evaluate(_module.get(), buffer.data(),
-		&pass, &swap, &tc, &oc);
+
+	try
+	{
+		module_evaluate(_module.get(), buffer.data(),
+			&pass, &swap, &tc, &oc);
+	}
+	catch (std::exception& e)
+	{
+		std::cerr << "Exception in Brain::evaluate(): "
+			<< e.what() << std::endl;
+		pass = true;
+	}
+	catch (...)
+	{
+		std::cerr << "Unknown error in Brain::evaluate()" << std::endl;
+		pass = true;
+	}
+
 	wantsToPass = (pass > 0);
 	wantsToSwap = (swap > 0);
 	tableCard = tc;

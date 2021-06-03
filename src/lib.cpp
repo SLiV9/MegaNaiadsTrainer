@@ -26,7 +26,7 @@ extern "C" void module_evaluate(Module* module, const float* input,
 {
 	std::vector<size_t> tableCards;
 	std::vector<size_t> ownCards;
-	for (size_t i = 0; i < NUM_VIEW_SETS * NUM_CARDS; i++)
+	for (size_t i = 0; i < NUM_CARDS; i++)
 	{
 		if (input[i] > 0)
 		{
@@ -63,7 +63,7 @@ extern "C" void module_evaluate(Module* module, const float* input,
 		if (output[NUM_CARDS + c] > ownCardWeight)
 		{
 			*ownCard = (int) c;
-			ownCardWeight = output[c];
+			ownCardWeight = output[NUM_CARDS + c];
 		}
 	}
 	float playWeight = std::min(tableCardWeight, ownCardWeight);

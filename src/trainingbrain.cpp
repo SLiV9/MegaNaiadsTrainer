@@ -172,7 +172,7 @@ TrainingBrain TrainingBrain::makeOffspringWith(const TrainingBrain& other) const
 		newModule);
 }
 
-void TrainingBrain::save(const std::string& filepath)
+void TrainingBrain::save(const std::string& filepath, bool forceCPU)
 {
 	if (!_module)
 	{
@@ -194,9 +194,9 @@ void TrainingBrain::save(const std::string& filepath)
 		}
 	}
 
-	//_module->to(torch::kCPU, torch::kFloat);
+	if (forceCPU) _module->to(torch::kCPU, torch::kFloat);
 	save_state_dict(*_module, filepath);
-	//if (ENABLE_CUDA) _module->to(torch::kCUDA, torch::kHalf);
+	if (forceCPU && ENABLE_CUDA) _module->to(torch::kCUDA, torch::kHalf);
 	std::cout << "Saved " << filepath << std::endl;
 }
 
