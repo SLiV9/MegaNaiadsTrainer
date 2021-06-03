@@ -34,9 +34,16 @@
 /cmake
 /build
 
+# SCons-specific ignores
+.sconsign.dblite
+
 # VS
 /.vs
 /out
+*.exp
+*.ilk
+*.idb
+*.pdb
 
 # Application output
 /brains
