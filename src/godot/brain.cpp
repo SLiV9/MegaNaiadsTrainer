@@ -22,8 +22,8 @@ void Brain::_register_methods()
     register_property<Brain, Array>("input", &Brain::input, Array());
     register_property<Brain, bool>("wantsToPass", &Brain::wantsToPass, false);
     register_property<Brain, bool>("wantsToSwap", &Brain::wantsToSwap, false);
-    register_property<Brain, int>("tableCard", &Brain::tableCard, false);
-    register_property<Brain, int>("ownCard", &Brain::ownCard, false);
+    register_property<Brain, int>("tableCard", &Brain::tableCard, 0);
+    register_property<Brain, int>("ownCard", &Brain::ownCard, 0);
 }
 
 void Brain::_init()
@@ -36,17 +36,20 @@ void Brain::_ready()
 	// Nothing to do.
 }
 
-void Brain::load(const String& filepath)
+void Brain::load(String filepath)
 {
 	{
 		struct stat buffer;
-		if (stat(filepath.ascii().get_data(), &buffer) != 0)
+		if (stat(filepath.utf8().get_data(), &buffer) != 0)
 		{
+			std::cerr << "Missing module file"
+				" '" << filepath.utf8().get_data() << "'"
+				"" << std::endl;
 			return;
 		}
 	}
 
-	module_load(_module.get(), filepath.ascii().get_data());
+	module_load(_module.get(), filepath.utf8().get_data());
 }
 
 void Brain::evaluate()

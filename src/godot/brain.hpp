@@ -40,7 +40,7 @@ public:
 
 	void _ready();
 
-	void load(const String& filepath);
+	void load(String filepath);
 	void evaluate();
 };
 

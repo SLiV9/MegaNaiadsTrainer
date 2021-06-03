@@ -194,7 +194,9 @@ void TrainingBrain::save(const std::string& filepath)
 		}
 	}
 
+	//_module->to(torch::kCPU, torch::kFloat);
 	save_state_dict(*_module, filepath);
+	//if (ENABLE_CUDA) _module->to(torch::kCUDA, torch::kHalf);
 	std::cout << "Saved " << filepath << std::endl;
 }
 
@@ -222,7 +224,7 @@ void TrainingBrain::load(const std::string& filepath)
 
 	load_state_dict(*_module, filepath);
 	if (ENABLE_CUDA) _module->to(torch::kCUDA, torch::kHalf);
-	else _module->to(torch::kFloat);
+	else _module->to(torch::kCPU, torch::kFloat);
 	std::cout << "Loaded " << filepath << std::endl;
 }
 
