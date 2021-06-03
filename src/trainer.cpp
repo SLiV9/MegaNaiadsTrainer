@@ -20,6 +20,7 @@ struct Player
 	std::shared_ptr<TrainingBrain> brain;
 	size_t relativeGameOffset;
 	bool hasPassed = false;
+	bool hasSwapped = false;
 	int turnOfPass = -1;
 };
 
@@ -340,6 +341,7 @@ inline void updateGameState(Game& game,
 		}
 
 		game.players[activeSeat].hasPassed = true;
+		game.players[activeSeat].hasSwapped = swapOnPass;
 	}
 }
 
@@ -449,7 +451,8 @@ inline float determineHandValue(const Game& game,
 		}
 	}
 
-	if (game.players[s].brain->personality == Personality::ILLUSIONIST)
+	if (game.players[s].brain->personality == Personality::ILLUSIONIST
+		&& !game.players[s].hasSwapped)
 	{
 		// Up to one non-Ace clubs becomes a spade.
 		// Up to one non-Ace diamond becomes a heart.
@@ -1083,6 +1086,11 @@ void Trainer::saveBrains()
 				name += "_" + std::to_string(brain->fatherNumber);
 
 				brain->save(folder + "/" + name + ".pth.tar");
+				if (i == 0)
+				{
+					brain->save(folder + "/" + name + "_cpu.pth.tar",
+						/*forceCPU=*/true);
+				}
 				brain->saveScan(folder + "/" + name + ".png");
 
 				list << name << std::endl;
