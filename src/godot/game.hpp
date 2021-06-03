@@ -17,6 +17,8 @@ public:
 	void _init();
 
 	void _ready();
+
+	float evaluate_hand(int card1, int card2, int card3);
 };
 
 }

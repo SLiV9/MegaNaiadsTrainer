@@ -1,4 +1,5 @@
 #include "game.hpp"
+#include "brain.hpp"
 
 
 extern "C" void GDN_EXPORT godot_gdnative_init(

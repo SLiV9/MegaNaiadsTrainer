@@ -7,12 +7,12 @@ opts = Variables([], ARGUMENTS)
 env = DefaultEnvironment()
 
 # Define our options
-opts.Add(EnumVariable('target', "Compilation target", 'debug', ['d', 'debug', 'r', 'release']))
+opts.Add(EnumVariable('target', "Compilation target", 'release', ['d', 'debug', 'r', 'release']))
 opts.Add(EnumVariable('platform', "Compilation platform", '', ['', 'windows', 'x11', 'linux', 'osx']))
 opts.Add(EnumVariable('p', "Compilation target, alias for 'platform'", '', ['', 'windows', 'x11', 'linux', 'osx']))
 opts.Add(BoolVariable('use_llvm', "Use the LLVM / Clang compiler", 'no'))
 opts.Add(PathVariable('target_path', 'The path where the lib is installed.', './bin/'))
-opts.Add(PathVariable('target_name', 'The library name.', 'libgdmeganaiads', PathVariable.PathAccept))
+opts.Add(PathVariable('target_name', 'The library name.', 'gdmeganaiads', PathVariable.PathAccept))
 opts.Add(PathVariable('impl_path', 'The path where the implementation DLL is installed.', './build/'))
 
 # Local dependency paths, adapt them to your setup
@@ -98,8 +98,8 @@ env.Append(LIBPATH=[cpp_bindings_path + 'bin/'])
 env.Append(LIBS=[cpp_library])
 
 # link with implementation
-env.Append(LIBPATH=[env['impl_path']])
-env.Append(LIBS=['libmeganaiads'])
+#env.Append(LIBPATH=[env['impl_path']])
+#env.Append(LIBS=['libmeganaiads'])
 
 # tweak this if you want to use different folders, or more folders, to store your source code in.
 env.Append(CPPPATH=['src/'])
