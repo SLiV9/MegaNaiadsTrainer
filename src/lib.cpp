@@ -1,12 +1,7 @@
 #include "lib.hpp"
 
-//#include "module.hpp"
-//#include "stateloader.hpp"
-
-class Module
-{
-    // Empty
-};
+#include "module.hpp"
+#include "stateloader.hpp"
 
 
 extern "C" Module* module_allocate()
@@ -21,8 +16,8 @@ extern "C" void module_deallocate(Module* module)
 
 extern "C" void module_load(Module* module, const char* filepath)
 {
-    //load_state_dict(*module, filepath);
-    //module->to(torch::kCPU, torch::kFloat);
+    load_state_dict(*module, filepath);
+    module->to(torch::kCPU, torch::kFloat);
 }
 
 extern "C" void module_evaluate(Module* module, const float* input,
