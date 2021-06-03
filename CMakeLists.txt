@@ -19,7 +19,12 @@ include_directories(src)
 
 add_executable(trainer src/main.cpp
 	libs/lodepng/lodepng.cpp
-        src/module.cpp src/brain.cpp
-        src/trainer.cpp)
+	src/module.cpp src/trainingbrain.cpp src/trainer.cpp)
 set_target_properties(trainer PROPERTIES LINK_FLAGS "/DEBUG")
 target_link_libraries(trainer ${TORCH_LIBRARIES})
+
+add_library(libmeganaiads EXCLUDE_FROM_ALL SHARED src/lib.cpp
+	src/module.cpp)
+target_compile_options(libmeganaiads PRIVATE "-fvisibility=hidden" "-fvisibility-inlines-hidden")
+target_link_options(libmeganaiads PRIVATE "-nodefaultlibs" "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections")
+target_link_libraries(libmeganaiads ${TORCH_LIBRARIES})

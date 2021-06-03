@@ -1,4 +1,4 @@
-#include "brain.hpp"
+#include "trainingbrain.hpp"
 
 #include "libs/lodepng/lodepng.h"
 
@@ -11,7 +11,7 @@ static torch::NoGradGuard no_grad;
 
 static size_t _brainSerialNumber = 0;
 
-const char* Brain::personalityName(Personality p)
+const char* TrainingBrain::personalityName(Personality p)
 {
 	switch (p)
 	{
@@ -35,7 +35,7 @@ const char* Brain::personalityName(Personality p)
 	}
 }
 
-bool Brain::isNeural(Personality p)
+bool TrainingBrain::isNeural(Personality p)
 {
 	switch (p)
 	{
@@ -49,7 +49,7 @@ bool Brain::isNeural(Personality p)
 
 inline std::shared_ptr<Module> createModuleBasedOnPersonality(Personality p)
 {
-	if (Brain::isNeural(p))
+	if (TrainingBrain::isNeural(p))
 	{
 		return std::make_shared<Module>();
 	}
@@ -59,7 +59,7 @@ inline std::shared_ptr<Module> createModuleBasedOnPersonality(Personality p)
 	}
 }
 
-Brain::Brain(Personality p, size_t mNum, size_t fNum,
+TrainingBrain::TrainingBrain(Personality p, size_t mNum, size_t fNum,
 		std::shared_ptr<Module> module) :
 	_module(module),
 	personality(p),
@@ -72,13 +72,13 @@ Brain::Brain(Personality p, size_t mNum, size_t fNum,
 	else _module->to(torch::kFloat);
 }
 
-Brain::Brain(Personality personality) :
-	Brain(personality, 0, 0,
+TrainingBrain::TrainingBrain(Personality personality) :
+	TrainingBrain(personality, 0, 0,
 		createModuleBasedOnPersonality(personality)
 	)
 {}
 
-void Brain::reset(size_t seat)
+void TrainingBrain::reset(size_t seat)
 {
 	size_t n = numGamesPerSeat[seat] * NUM_VIEW_SETS * NUM_CARDS;
 	viewBufferPerSeat[seat].resize(n, 0);
@@ -95,9 +95,9 @@ void Brain::reset(size_t seat)
 			torch::kFloat);
 }
 
-void Brain::evaluate(size_t seat)
+void TrainingBrain::evaluate(size_t seat)
 {
-	if (!Brain::isNeural(personality))
+	if (!TrainingBrain::isNeural(personality))
 	{
 		switch (personality)
 		{
@@ -129,7 +129,7 @@ void Brain::evaluate(size_t seat)
 	_module->forward(viewTensorPerSeat[seat], outputTensorPerSeat[seat]);
 }
 
-void Brain::cycle(size_t seat)
+void TrainingBrain::cycle(size_t seat)
 {
 	torch::Tensor bufferTensor = torch::from_blob(
 		viewBufferPerSeat[seat].data(),
@@ -149,33 +149,34 @@ void Brain::cycle(size_t seat)
 	}
 }
 
-Brain Brain::makeMutation(double deviationFactor) const
+TrainingBrain TrainingBrain::makeMutation(double deviationFactor) const
 {
 	if (!_module)
 	{
-		return Brain(personality);
+		return TrainingBrain(personality);
 	}
 	auto newModule = std::dynamic_pointer_cast<Module>(_module->clone());
 	newModule->mutate(deviationFactor);
-	return Brain(personality, serialNumber, 0, newModule);
+	return TrainingBrain(personality, serialNumber, 0, newModule);
 }
 
-Brain Brain::makeOffspringWith(const Brain& other) const
+TrainingBrain TrainingBrain::makeOffspringWith(const TrainingBrain& other) const
 {
 	if (!_module)
 	{
-		return Brain(personality);
+		return TrainingBrain(personality);
 	}
 	auto newModule = std::dynamic_pointer_cast<Module>(_module->clone());
 	newModule->spliceWith(*(other._module));
-	return Brain(personality, serialNumber, other.serialNumber, newModule);
+	return TrainingBrain(personality, serialNumber, other.serialNumber,
+		newModule);
 }
 
-void Brain::save(const std::string& filepath)
+void TrainingBrain::save(const std::string& filepath)
 {
 	if (!_module)
 	{
-		if (Brain::isNeural(personality))
+		if (TrainingBrain::isNeural(personality))
 		{
 			std::cerr << "missing module"
 				" for " << personalityName(personality) << serialNumber << ""
@@ -197,11 +198,11 @@ void Brain::save(const std::string& filepath)
 	std::cout << "Saved " << filepath << std::endl;
 }
 
-void Brain::load(const std::string& filepath)
+void TrainingBrain::load(const std::string& filepath)
 {
 	if (!_module)
 	{
-		if (Brain::isNeural(personality))
+		if (TrainingBrain::isNeural(personality))
 		{
 			std::cerr << "missing module"
 				" for " << personalityName(personality) << serialNumber << ""
@@ -244,11 +245,11 @@ inline uint8_t paletteIndexFromValue(float value, float multiplier)
 	return 2 + step;
 }
 
-void Brain::saveScan(const std::string& filepath)
+void TrainingBrain::saveScan(const std::string& filepath)
 {
 	if (!_module)
 	{
-		if (Brain::isNeural(personality))
+		if (TrainingBrain::isNeural(personality))
 		{
 			std::cerr << "missing module"
 				" for " << personalityName(personality) << serialNumber << ""

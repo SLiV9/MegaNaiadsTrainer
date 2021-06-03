@@ -1,6 +1,5 @@
 #pragma once
 
-#include <queue>
 #include <memory>
 
 #include <torch/torch.h>
@@ -10,7 +9,7 @@
 class Module;
 
 
-class Brain
+class TrainingBrain
 {
 private:
 	std::shared_ptr<Module> _module;
@@ -35,17 +34,17 @@ public:
 	float objectiveScore = 0;
 
 private:
-	explicit Brain(Personality personality,
+	explicit TrainingBrain(Personality personality,
 		size_t motherNumber, size_t fatherNumber,
 		std::shared_ptr<Module> module);
 
 public:
-	explicit Brain(Personality personality);
-	Brain(const Brain&) = delete;
-	Brain(Brain&& other) = default;
-	Brain& operator=(const Brain&) = delete;
-	Brain& operator=(Brain&&) = default;
-	~Brain() = default;
+	explicit TrainingBrain(Personality personality);
+	TrainingBrain(const TrainingBrain&) = delete;
+	TrainingBrain(TrainingBrain&& other) = default;
+	TrainingBrain& operator=(const TrainingBrain&) = delete;
+	TrainingBrain& operator=(TrainingBrain&&) = default;
+	~TrainingBrain() = default;
 
 	static bool isNeural(Personality personality);
 	static const char* personalityName(Personality personality);
@@ -54,8 +53,8 @@ public:
 	void evaluate(size_t seat);
 	void cycle(size_t seat);
 
-	Brain makeMutation(double deviationFactor) const;
-	Brain makeOffspringWith(const Brain& other) const;
+	TrainingBrain makeMutation(double deviationFactor) const;
+	TrainingBrain makeOffspringWith(const TrainingBrain& other) const;
 
 	void save(const std::string& filepath);
 	void load(const std::string& filepath);

@@ -7,6 +7,7 @@ class Module : public torch::nn::Cloneable<Module>
 {
 private:
 	friend class Brain;
+	friend class TrainingBrain;
 
 	torch::nn::Linear _fc1;
 	torch::nn::Linear _fc2;

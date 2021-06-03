@@ -12,7 +12,8 @@ opts.Add(EnumVariable('platform', "Compilation platform", '', ['', 'windows', 'x
 opts.Add(EnumVariable('p', "Compilation target, alias for 'platform'", '', ['', 'windows', 'x11', 'linux', 'osx']))
 opts.Add(BoolVariable('use_llvm', "Use the LLVM / Clang compiler", 'no'))
 opts.Add(PathVariable('target_path', 'The path where the lib is installed.', './bin/'))
-opts.Add(PathVariable('target_name', 'The library name.', 'libmeganaiads', PathVariable.PathAccept))
+opts.Add(PathVariable('target_name', 'The library name.', 'libgdmeganaiads', PathVariable.PathAccept))
+opts.Add(PathVariable('impl_path', 'The path where the implementation DLL is installed.', './build/'))
 
 # Local dependency paths, adapt them to your setup
 godot_headers_path = "godot-cpp/godot-headers/"
@@ -95,6 +96,10 @@ cpp_library += '.' + str(bits)
 env.Append(CPPPATH=['.', godot_headers_path, cpp_bindings_path + 'include/', cpp_bindings_path + 'include/core/', cpp_bindings_path + 'include/gen/'])
 env.Append(LIBPATH=[cpp_bindings_path + 'bin/'])
 env.Append(LIBS=[cpp_library])
+
+# link with implementation
+env.Append(LIBPATH=[env['impl_path']])
+env.Append(LIBS=['libmeganaiads'])
 
 # tweak this if you want to use different folders, or more folders, to store your source code in.
 env.Append(CPPPATH=['src/'])

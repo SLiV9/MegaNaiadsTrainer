@@ -12,12 +12,12 @@
 #include <torch/torch.h>
 
 #include "const.hpp"
-#include "brain.hpp"
+#include "trainingbrain.hpp"
 
 
 struct Player
 {
-	std::shared_ptr<Brain> brain;
+	std::shared_ptr<TrainingBrain> brain;
 	size_t relativeGameOffset;
 	bool hasPassed = false;
 	int turnOfPass = -1;
@@ -90,7 +90,7 @@ inline void debugPrintGameState(const Game& game,
 			continue;
 		}
 		std::cout << "Seat " << s << ""
-			" (" << Brain::personalityName(
+			" (" << TrainingBrain::personalityName(
 				game.players[s].brain->personality) << ")"
 			": ";
 		for (size_t c = 0; c < NUM_CARDS; c++)
@@ -915,9 +915,11 @@ void Trainer::sortBrains()
 			if (num == 0)
 			{
 				std::cout << (i + 1) << ":\t"
-					"" << Brain::personalityName(brain->personality) << ""
+					"" << TrainingBrain::personalityName(
+						brain->personality) << ""
 					"" << brain->serialNumber << ""
-					" (" << brain->motherNumber << "+" << brain->fatherNumber << ")"
+					" (" << brain->motherNumber << ""
+					"+" << brain->fatherNumber << ")"
 					" did not play any games!" << std::endl;
 				continue;
 			}
@@ -931,9 +933,10 @@ void Trainer::sortBrains()
 			float averageLossValue = brain->totalLosingHandValue
 				/ std::max(1, num - surv);
 			std::cout << (i + 1) << ":\t"
-				"" << Brain::personalityName(brain->personality) << ""
+				"" << TrainingBrain::personalityName(brain->personality) << ""
 				"" << brain->serialNumber << ""
-				" (" << brain->motherNumber << "+" << brain->fatherNumber << ")"
+				" (" << brain->motherNumber << ""
+				"+" << brain->fatherNumber << ")"
 				" scored " << (0.1 * int(10 * brain->objectiveScore)) << ""
 				", survived"
 				" " << (0.1 * int(100 * 10 * surv / num)) << "%"
@@ -966,7 +969,7 @@ void Trainer::sortBrains()
 		float pAverageWinValue = pTotalWinValue / std::max(1, pSurv);
 		float pAverageLossValue = pTotalLossValue / std::max(1, pNum - pSurv);
 		std::cout << "Overall,"
-			" " << Brain::personalityName((Personality) p) << ""
+			" " << TrainingBrain::personalityName((Personality) p) << ""
 			" scored " << (0.1 * int(10 * pAverageScore)) << ""
 			", survived"
 			" " << (0.1 * int(100 * 10 * pSurv / pNum)) << "%"
@@ -1000,7 +1003,7 @@ void Trainer::evolveBrains()
 
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
-		if (!Brain::isNeural((Personality) p))
+		if (!TrainingBrain::isNeural((Personality) p))
 		{
 			continue;
 		}
@@ -1014,22 +1017,22 @@ void Trainer::evolveBrains()
 		double deviationFactor = 0.05 / sqrt(_round + 1);
 		for (size_t k = 0; k < chunkSize && i > 2 * chunkSize; k++, i--)
 		{
-			Brain brain = pool[k]->makeMutation(deviationFactor);
-			pool[i] = std::make_shared<Brain>(std::move(brain));
+			auto brain = pool[k]->makeMutation(deviationFactor);
+			pool[i] = std::make_shared<TrainingBrain>(std::move(brain));
 		}
 		// A fifth of the new pool will consist of the offspring of
 		// pairs of brains from the best fifth and second fifth.
 		for (size_t k = 0; k < chunkSize && i > 2 * chunkSize; k++, i--)
 		{
-			Brain brain = pool[k]->makeOffspringWith(*pool[chunkSize + k]);
-			pool[i] = std::make_shared<Brain>(std::move(brain));
+			auto brain = pool[k]->makeOffspringWith(*pool[chunkSize + k]);
+			pool[i] = std::make_shared<TrainingBrain>(std::move(brain));
 		}
 		// The middle fifth of the new pool is spliced with
 		// brains from the best fifth.
 		for (size_t k = 0; k < chunkSize && i > 2 * chunkSize; k++, i--)
 		{
-			Brain brain = pool[i]->makeOffspringWith(*pool[k]);
-			pool[i] = std::make_shared<Brain>(std::move(brain));
+			auto brain = pool[i]->makeOffspringWith(*pool[k]);
+			pool[i] = std::make_shared<TrainingBrain>(std::move(brain));
 		}
 	}
 
@@ -1074,7 +1077,7 @@ void Trainer::saveBrains()
 			auto& brain = _brainsPerPersonality[p][i];
 			{
 				std::string name;
-				name += Brain::personalityName(brain->personality);
+				name += TrainingBrain::personalityName(brain->personality);
 				name += "_" + std::to_string(brain->serialNumber);
 				name += "_" + std::to_string(brain->motherNumber);
 				name += "_" + std::to_string(brain->fatherNumber);
@@ -1129,7 +1132,8 @@ void Trainer::resume(std::string session, size_t round)
 		size_t p = NUM_PERSONALITIES + 1000;
 		for (size_t pp = 0; pp < NUM_PERSONALITIES; pp++)
 		{
-			if (personality == Brain::personalityName((Personality) pp))
+			if (personality
+				== TrainingBrain::personalityName((Personality) pp))
 			{
 				p = pp;
 			}
@@ -1145,7 +1149,8 @@ void Trainer::resume(std::string session, size_t round)
 			std::cerr << "Ignoring excess for " << personality << std::endl;
 			continue;
 		}
-		_brainsPerPersonality[p][i] = std::make_shared<Brain>((Personality) p);
+		_brainsPerPersonality[p][i] =
+			std::make_shared<TrainingBrain>((Personality) p);
 		_brainsPerPersonality[p][i]->load(folder + "/" + name + ".pth.tar");
 		countPerPersonality[p] += 1;
 	}
@@ -1154,7 +1159,8 @@ void Trainer::resume(std::string session, size_t round)
 		if (countPerPersonality[p] < NUM_BRAINS_PER_PERSONALITY)
 		{
 			std::cerr << "Adding brains for "
-				<< Brain::personalityName((Personality) p) << std::endl;
+				<< TrainingBrain::personalityName((Personality) p)
+				<< std::endl;
 		}
 	}
 
@@ -1180,7 +1186,8 @@ void Trainer::train()
 		{
 			if (_brainsPerPersonality[p][i]) continue;
 			Personality personality = (Personality) p;
-			_brainsPerPersonality[p][i] = std::make_shared<Brain>(personality);
+			_brainsPerPersonality[p][i] =
+				std::make_shared<TrainingBrain>(personality);
 		}
 	}
 

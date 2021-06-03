@@ -8,7 +8,7 @@
 
 #include "const.hpp"
 
-class Brain;
+class TrainingBrain;
 
 
 class Trainer
@@ -16,7 +16,7 @@ class Trainer
 private:
 	std::time_t _startTime;
 	std::array<
-		std::array<std::shared_ptr<Brain>, NUM_BRAINS_PER_PERSONALITY>,
+		std::array<std::shared_ptr<TrainingBrain>, NUM_BRAINS_PER_PERSONALITY>,
 		NUM_PERSONALITIES> _brainsPerPersonality;
 	size_t _round;
 
