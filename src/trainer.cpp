@@ -343,6 +343,15 @@ inline void updateGameState(Game& game,
 		game.players[activeSeat].hasPassed = true;
 		game.players[activeSeat].hasSwapped = swapOnPass;
 	}
+
+	// If a player makes 31, the game ends immediately.
+	if (determineHandValue(game, state, activeSeat) >= 31.0f)
+	{
+		for (size_t s = 0; s < NUM_SEATS; s++)
+		{
+			game.players[s].hasPassed = true;
+		}
+	}
 }
 
 inline void updateViewBuffers(const Game& game,
@@ -563,29 +572,26 @@ void Trainer::playRound()
 		}
 	}
 
-	std::array<uint8_t, NUM_NORMAL_PERSONALITIES + 2> normies;
+	std::array<uint8_t, NUM_NORMAL_PERSONALITIES> normies;
 	for (size_t p = 0; p < NUM_NORMAL_PERSONALITIES; p++)
 	{
 		normies[p] = p;
 	}
-	normies[NUM_NORMAL_PERSONALITIES] = (size_t) Personality::GREEDY;
-	normies[NUM_NORMAL_PERSONALITIES + 1] = (size_t) Personality::DUMMY;
 
 	std::vector<Game> games;
 	size_t numGamesPerBrain = 1000;
 	size_t numNormalGames = NUM_BRAINS_PER_PERSONALITY * numGamesPerBrain
 		* normies.size() / NUM_SEATS;
-	size_t numGoonGames = 2 * numGamesPerBrain;
-	size_t numDuelGames = 2 * numGamesPerBrain;
-	games.resize(numNormalGames + numGoonGames + numDuelGames);
+	size_t numGoonGames = numGamesPerBrain;
+	games.resize(numNormalGames + numGoonGames);
 
 	size_t remGoonGames = numGoonGames;
-	size_t remDuelGames = numDuelGames;
 	for (Game& game : games)
 	{
-		// Each game includes (a stand in for) the player.
-		if ((remGoonGames > 0 || remDuelGames > 0) && (rng() % 2) == 0)
+		// Each game includes a stand in for the player.
+		if ((rng() % 3) > 0)
 		{
+			// 33% chance of greedy, 33% chance of dummy
 			size_t p = (size_t) ((rng() % 2)
 				? Personality::GREEDY
 				: Personality::DUMMY);
@@ -594,10 +600,13 @@ void Trainer::playRound()
 		}
 		else
 		{
+			// 33% chance of player
 			size_t p = (size_t) Personality::PLAYER;
 			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
 			game.players[0].brain = _brainsPerPersonality[p][i];
 		}
+
+		// The other players are the actual AIs we are training.
 		if (remGoonGames > 0)
 		{
 			remGoonGames--;
@@ -611,19 +620,6 @@ void Trainer::playRound()
 				game.players[s].brain = _brainsPerPersonality[p][i];
 			}
 		}
-		else if (remDuelGames > 0)
-		{
-			remDuelGames--;
-			size_t p = (size_t) Personality::DUELIST;
-			size_t i = rng() % NUM_BRAINS_PER_PERSONALITY;
-			game.players[1].brain = _brainsPerPersonality[p][i];
-			for (size_t s = 2; s < NUM_SEATS; s++)
-			{
-				p = (size_t) Personality::EMPTY;
-				game.players[s].brain = _brainsPerPersonality[p][0];
-				game.players[s].hasPassed = true;
-			}
-		}
 		else
 		{
 			std::shuffle(normies.begin(), normies.end(), rng);
@@ -634,6 +630,7 @@ void Trainer::playRound()
 				game.players[s].brain = _brainsPerPersonality[p][i];
 			}
 		}
+
 		std::shuffle(game.players.begin(), game.players.end(), rng);
 		for (size_t s = 0; s < NUM_SEATS; s++)
 		{
@@ -728,7 +725,7 @@ void Trainer::playRound()
 	std::cout << "Playing " << games.size() << " games..." << std::endl;
 	size_t shownGameIndex = rng() % games.size();
 	std::cout << "(Showing game #" << shownGameIndex << ".)" << std::endl;
-	size_t maxTurnsPerPlayer = 10;
+	size_t maxTurnsPerPlayer = 5;
 	bool allFinished = false;
 	for (size_t t = 0; t < maxTurnsPerPlayer && !allFinished; t++)
 	{
@@ -863,7 +860,7 @@ void Trainer::sortBrains()
 			// Bonus objective: get highest possible hand value.
 			float handValue = (brain->totalHandValue / num);
 			float maxHandValue = 32.0;
-			brain->objectiveScore += 500 * (handValue / maxHandValue);
+			brain->objectiveScore += 1000 * (handValue / maxHandValue);
 			switch (brain->personality)
 			{
 				case Personality::GOON:
@@ -872,7 +869,7 @@ void Trainer::sortBrains()
 					brain->objectiveScore = 1000.0
 						* (num - brain->numBossLosses) / num;
 					// Bonus objective: make sure the Player loses.
-					brain->objectiveScore += 500.0
+					brain->objectiveScore += 1000.0
 						* (num - brain->numPlayerLosses) / num;
 				}
 				break;

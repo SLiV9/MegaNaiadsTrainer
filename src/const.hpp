@@ -31,12 +31,13 @@ enum class Personality
 	// Boss-battle:
 	GOON,
 	BOSS,
-	DUELIST,
 	// Training only:
 	PLAYER,
 	GREEDY,
 	DUMMY,
 	EMPTY,
+	// No longer used:
+	DUELIST,
 };
 constexpr size_t NUM_NORMAL_PERSONALITIES = size_t(Personality::DRUNK) + 1;
 constexpr size_t NUM_PERSONALITIES = size_t(Personality::EMPTY) + 1;
