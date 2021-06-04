@@ -850,27 +850,41 @@ void Trainer::sortBrains()
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
 			auto& brain = _brainsPerPersonality[p][i];
-			// Main objective: lose as few games as possible.
 			int num = 0;
 			for (size_t s = 0; s < NUM_SEATS; s++)
 			{
 				num += brain->numGamesPerSeat[s];
 			}
-			brain->objectiveScore = 1000.0 * (num - brain->numLosses) / num;
-			// Bonus objective: get highest possible hand value.
+			if (num == 0)
+			{
+				brain->objectiveScore = 0;
+				continue;
+			}
+			// Main objective: get highest possible hand value.
 			float handValue = (brain->totalHandValue / num);
-			float maxHandValue = 32.0;
-			brain->objectiveScore += 1000 * (handValue / maxHandValue);
+			// Set the baseline to the value of the starting hand (DUMMY).
+			float averageHandValue = 15.0f;
+			float goodHandValue = 30.0f;
+			brain->objectiveScore = 1000
+				* (handValue - averageHandValue)
+				/ (goodHandValue - averageHandValue);
+			// Bonus objective: lose as few games as possible.
+			float averageLosses = 0.25 * num;
+			brain->objectiveScore += 100.0
+				* (averageLosses - brain->numLosses)
+				 / averageLosses;
 			switch (brain->personality)
 			{
 				case Personality::GOON:
 				{
 					// Alternative objective: make sure the Boss does not lose.
 					brain->objectiveScore = 1000.0
-						* (num - brain->numBossLosses) / num;
+						* (averageLosses - brain->numBossLosses)
+						/ averageLosses;
 					// Bonus objective: make sure the Player loses.
-					brain->objectiveScore += 1000.0
-						* (num - brain->numPlayerLosses) / num;
+					brain->objectiveScore += 100.0
+						* (brain->numPlayerLosses - averageLosses)
+						/ averageLosses;
 				}
 				break;
 				default:
