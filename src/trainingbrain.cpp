@@ -500,7 +500,7 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 	std::vector<uint8_t> data(numBytes, 0);
 	int xOfBlock = margin;
 	int yOfBlock = margin;
-	float weightMultiplier = 2.50f;
+	float weightMultiplier = 5.00f;
 
 	std::array<float, ACTION_SIZE> bias;
 

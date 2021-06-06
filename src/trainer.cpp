@@ -379,7 +379,7 @@ inline void updateViewBuffers(const Game& game,
 					&& otherPersonality == Personality::BOSS))
 			{
 				buffer[(1 + tt) * NUM_CARDS + c] =
-					state[(1 + activeSeat) * NUM_CARDS + c];
+					state[(1 + t) * NUM_CARDS + c];
 			}
 			else
 			{
