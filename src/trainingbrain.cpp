@@ -247,6 +247,12 @@ inline uint8_t paletteIndexFromValue(float value, float multiplier)
 	return 2 + step;
 }
 
+constexpr int SCAN_BITDEPTH = 4;
+
+inline void writeScan(const std::string& filepath,
+	int imagew, int imageh,
+	const std::vector<uint8_t>& data);
+
 void TrainingBrain::saveScan(const std::string& filepath)
 {
 	if (!_module)
@@ -292,10 +298,9 @@ void TrainingBrain::saveScan(const std::string& filepath)
 		"" << std::endl;
 
 	// Palette size can be 2, 4, 16 or 256 colors.
-	const int bitdepth = 4;
-	const int paletteSize = 1 << bitdepth;
-	const int pixelsPerByte = 8 / bitdepth;
-	const uint8_t mask = (1 << bitdepth) - 1;
+	const int paletteSize = 1 << SCAN_BITDEPTH;
+	const int pixelsPerByte = 8 / SCAN_BITDEPTH;
+	const uint8_t mask = (1 << SCAN_BITDEPTH) - 1;
 	std::vector<size_t> histogram(paletteSize, 0);
 
 	size_t numBytes = (imagew * imageh + pixelsPerByte - 1) / pixelsPerByte;
@@ -324,7 +329,7 @@ void TrainingBrain::saveScan(const std::string& filepath)
 				int i = yy * imagew + xx;
 				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
 				data[i / pixelsPerByte] |=
-					(pix & mask) << (part * bitdepth);
+					(pix & mask) << (part * SCAN_BITDEPTH);
 			}
 		}
 		xOfBlock += w;
@@ -349,7 +354,7 @@ void TrainingBrain::saveScan(const std::string& filepath)
 				int i = yy * imagew + xx;
 				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
 				data[i / pixelsPerByte] |=
-					(pix & mask) << (part * bitdepth);
+					(pix & mask) << (part * SCAN_BITDEPTH);
 			}
 		}
 		xOfBlock += widthOfBias + padding;
@@ -374,7 +379,7 @@ void TrainingBrain::saveScan(const std::string& filepath)
 				int i = yy * imagew + xx;
 				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
 				data[i / pixelsPerByte] |=
-					(pix & mask) << (part * bitdepth);
+					(pix & mask) << (part * SCAN_BITDEPTH);
 			}
 		}
 		yOfBlock += h + 1;
@@ -398,12 +403,180 @@ void TrainingBrain::saveScan(const std::string& filepath)
 					int i = yy * imagew + xx;
 					int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
 					data[i / pixelsPerByte] |=
-						(pix & mask) << (part * bitdepth);
+						(pix & mask) << (part * SCAN_BITDEPTH);
 				}
 			}
 			xOfBlock += wOfPix;
 		}
 	}
+
+	writeScan(filepath, imagew, imageh, data);
+}
+
+void TrainingBrain::saveCorrelationScan(const std::string& filepath)
+{
+	if (!_module)
+	{
+		if (TrainingBrain::isNeural(personality))
+		{
+			std::cerr << "missing module"
+				" for " << personalityName(personality) << serialNumber << ""
+				"" << std::endl;
+		}
+		return;
+	}
+
+	{
+		struct stat buffer;
+		if (stat(filepath.c_str(), &buffer) == 0)
+		{
+			std::cout << "Keeping c-scan " << filepath << std::endl;
+			return;
+		}
+	}
+
+	int margin = 10;
+	int separation = 2;
+	int padding = 10;
+	int widthOfBias = 5;
+	int heightOfGradient = 50;
+
+	// Image dimensions:
+	int imagew = 2 * margin
+		+ NUM_VIEW_SETS * (NUM_CARDS + separation)
+		+ widthOfBias;
+	int imageh = 2 * margin
+		+ ((ACTION_SIZE + NUM_CARDS - 1) / NUM_CARDS) * (NUM_CARDS + separation)
+		+ padding + heightOfGradient;
+
+	std::cout << "Saving c-scan"
+		" of size " << imagew << "x" << imageh << ""
+		" to " << filepath << ""
+		"" << std::endl;
+
+	// Palette size can be 2, 4, 16 or 256 colors.
+	const int paletteSize = 1 << SCAN_BITDEPTH;
+	const int pixelsPerByte = 8 / SCAN_BITDEPTH;
+	const uint8_t mask = (1 << SCAN_BITDEPTH) - 1;
+	std::vector<size_t> histogram(paletteSize, 0);
+
+	size_t numBytes = (imagew * imageh + pixelsPerByte - 1) / pixelsPerByte;
+	std::vector<uint8_t> data(numBytes, 0);
+	int xOfBlock = margin;
+	int yOfBlock = margin;
+	float weightMultiplier = 15.0f;
+
+	{
+		int w = _module->_fc1->options.in_features();
+		int h = _module->_fc5->options.out_features();
+		for (int y = 0; y < h; y++)
+		{
+			for (int x = 0; x < w; x++)
+			{
+				int xx = xOfBlock + (x / NUM_CARDS) * (NUM_CARDS + separation)
+					+ (x % NUM_CARDS);
+				int yy = yOfBlock + (y / NUM_CARDS) * (NUM_CARDS + separation)
+					+ (y % NUM_CARDS);
+				// TODO create correlation data
+				float v = 0.001 * (rand() % 1000);
+				uint8_t pix = paletteIndexFromValue(v, weightMultiplier);
+				histogram[pix] += 1;
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * SCAN_BITDEPTH);
+			}
+		}
+		xOfBlock += (w / NUM_CARDS) * (NUM_CARDS + separation);
+	}
+
+	if (_module->_fc5->options.bias())
+	{
+		int h = _module->_fc5->options.out_features();
+		const auto& bb = _module->_fc5->bias.to(torch::kCPU, torch::kFloat);
+		float _bbCheck = *(bb[h - 1].data_ptr<float>());
+		float *bias = bb.data_ptr<float>();
+		for (int y = 0; y < h; y += 1)
+		{
+			float v = bias[y];
+			uint8_t pix = paletteIndexFromValue(v, weightMultiplier);
+			histogram[pix] += 1;
+			for (int x = 0; x < widthOfBias; x++)
+			{
+				int xx = xOfBlock + x;
+				int yy = yOfBlock + (y / NUM_CARDS) * (NUM_CARDS + separation)
+					+ (y % NUM_CARDS);
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * SCAN_BITDEPTH);
+			}
+		}
+		xOfBlock += widthOfBias + padding;
+	}
+	else
+	{
+		xOfBlock += padding;
+	}
+
+	if (heightOfGradient > 3)
+	{
+		xOfBlock = margin;
+		yOfBlock = imageh - margin - heightOfGradient;
+		int w = imagew - 2 * margin;
+		int h = heightOfGradient / 2 - 1;
+		for (int y = 0; y < h; y++)
+		{
+			for (int x = 0; x < w; x++)
+			{
+				int xx = xOfBlock + x;
+				int yy = yOfBlock + y;
+				int d = y - heightOfGradient / 2;
+				if (2 * x < w) d *= -1;
+				float v = -1.2f + 2.4f * (x + d) / w;
+				uint8_t pix = paletteIndexFromValue(v, 1.0f);
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * SCAN_BITDEPTH);
+			}
+		}
+		yOfBlock += h + 1;
+
+		xOfBlock = margin;
+		size_t total = 0;
+		for (int i = 0; i < paletteSize; i++)
+		{
+			total += histogram[i];
+		}
+		for (int pix = 0; pix < paletteSize; pix++)
+		{
+			int wOfPix = ((w - paletteSize) * histogram[pix] + total - 1)
+				/ total;
+			for (int y = 0; y < h; y++)
+			{
+				for (int x = 0; x < wOfPix; x++)
+				{
+					int xx = xOfBlock + x;
+					int yy = yOfBlock + y;
+					int i = yy * imagew + xx;
+					int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+					data[i / pixelsPerByte] |=
+						(pix & mask) << (part * SCAN_BITDEPTH);
+				}
+			}
+			xOfBlock += wOfPix;
+		}
+	}
+
+	writeScan(filepath, imagew, imageh, data);
+}
+
+inline void writeScan(const std::string& filepath,
+	int imagew, int imageh,
+	const std::vector<uint8_t>& data)
+{
+	const int paletteSize = 1 << SCAN_BITDEPTH;
 
 	lodepng::State state;
 	const uint32_t palette[paletteSize] = {
@@ -424,9 +597,9 @@ void TrainingBrain::saveScan(const std::string& filepath)
 	}
 
 	state.info_png.color.colortype = LCT_PALETTE;
-	state.info_png.color.bitdepth = bitdepth;
+	state.info_png.color.bitdepth = SCAN_BITDEPTH;
 	state.info_raw.colortype = LCT_PALETTE;
-	state.info_raw.bitdepth = bitdepth;
+	state.info_raw.bitdepth = SCAN_BITDEPTH;
 	state.encoder.auto_convert = false;
 
 	{

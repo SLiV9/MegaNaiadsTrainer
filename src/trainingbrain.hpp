@@ -60,4 +60,5 @@ public:
 	void load(const std::string& filepath);
 
 	void saveScan(const std::string& filepath);
+	void saveCorrelationScan(const std::string& filepath);
 };

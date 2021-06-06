@@ -1103,6 +1103,8 @@ void Trainer::saveBrains()
 						/*forceCPU=*/true);
 				}
 				brain->saveScan(folder + "/" + name + ".png");
+				//brain->saveCorrelationScan(
+				//	folder + "/" + name + "_correlation.png");
 
 				list << name << std::endl;
 			}
