@@ -95,6 +95,25 @@ void TrainingBrain::reset(size_t seat)
 			torch::kFloat);
 }
 
+void TrainingBrain::calculateCorrelation(bool on)
+{
+	if (on)
+	{
+		correlationTensor = torch::zeros(
+			{int(ACTION_SIZE), int(NUM_VIEW_SETS * NUM_CARDS)},
+			torch::kFloat);
+		if (ENABLE_CUDA)
+		{
+			correlationTensor = correlationTensor.contiguous().to(
+				torch::kCUDA, torch::kHalf, /*non_blocking=*/true);
+		}
+	}
+	else
+	{
+		correlationTensor = torch::empty(0);
+	}
+}
+
 void TrainingBrain::evaluate(size_t seat)
 {
 	if (!TrainingBrain::isNeural(personality))
@@ -126,7 +145,24 @@ void TrainingBrain::evaluate(size_t seat)
 		return;
 	}
 
-	_module->forward(viewTensorPerSeat[seat], outputTensorPerSeat[seat]);
+	torch::Tensor outputTensor = _module->forward(viewTensorPerSeat[seat]);
+
+	if (correlationTensor.size(0) > 0)
+	{
+		// Scale [0, 1] to [-1, 1].
+		//torch::Tensor weight = torch::add(
+		//	torch::mul(viewTensorPerSeat[seat], 2.0f),
+		//	-1.0f);
+		// Calculate outer product and add that to the existing correlation.
+		for (size_t i = 0; i < numGamesPerSeat[seat]; i++)
+		{
+			const torch::Tensor& weight = viewTensorPerSeat[seat];
+			correlationTensor.add_(outputTensor[i].ger(weight[i]));
+		}
+	}
+
+	outputTensorPerSeat[seat] = outputTensor.to(torch::kCPU, torch::kFloat,
+		/*non_blocking=*/true);
 }
 
 void TrainingBrain::cycle(size_t seat)
@@ -464,21 +500,27 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 	std::vector<uint8_t> data(numBytes, 0);
 	int xOfBlock = margin;
 	int yOfBlock = margin;
-	float weightMultiplier = 15.0f;
+	float weightMultiplier = 1.0f;
+
+	std::array<float, ACTION_SIZE> bias;
 
 	{
-		int w = _module->_fc1->options.in_features();
-		int h = _module->_fc5->options.out_features();
+		int w = NUM_VIEW_SETS * NUM_CARDS;
+		int h = ACTION_SIZE;
+		const auto& tt = correlationTensor.to(torch::kCPU, torch::kFloat);
+		float* weight = tt.data_ptr<float>();
+		float _boundsCheck = *(tt[h - 1][w - 1].data_ptr<float>());
 		for (int y = 0; y < h; y++)
 		{
+			bias[y] = 0;
 			for (int x = 0; x < w; x++)
 			{
 				int xx = xOfBlock + (x / NUM_CARDS) * (NUM_CARDS + separation)
 					+ (x % NUM_CARDS);
 				int yy = yOfBlock + (y / NUM_CARDS) * (NUM_CARDS + separation)
 					+ (y % NUM_CARDS);
-				// TODO create correlation data
-				float v = 0.001 * (rand() % 1000);
+				float v = weight[y * w + x] / std::max(1, totalTurnsPlayed);
+				bias[y] += v;
 				uint8_t pix = paletteIndexFromValue(v, weightMultiplier);
 				histogram[pix] += 1;
 				int i = yy * imagew + xx;
@@ -486,16 +528,13 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 				data[i / pixelsPerByte] |=
 					(pix & mask) << (part * SCAN_BITDEPTH);
 			}
+			bias[y] = bias[y] / w;
 		}
 		xOfBlock += (w / NUM_CARDS) * (NUM_CARDS + separation);
 	}
 
-	if (_module->_fc5->options.bias())
 	{
-		int h = _module->_fc5->options.out_features();
-		const auto& bb = _module->_fc5->bias.to(torch::kCPU, torch::kFloat);
-		float _bbCheck = *(bb[h - 1].data_ptr<float>());
-		float *bias = bb.data_ptr<float>();
+		int h = ACTION_SIZE;
 		for (int y = 0; y < h; y += 1)
 		{
 			float v = bias[y];
@@ -513,10 +552,6 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 			}
 		}
 		xOfBlock += widthOfBias + padding;
-	}
-	else
-	{
-		xOfBlock += padding;
 	}
 
 	if (heightOfGradient > 3)

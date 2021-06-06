@@ -42,8 +42,8 @@ extern "C" void module_evaluate(Module* module, const float* input,
 		(void*) input,
 		int(NUM_VIEW_SETS * NUM_CARDS),
 		torch::kFloat);
-	torch::Tensor outputTensor = torch::zeros(int(ACTION_SIZE), torch::kFloat);
-	module->forward(inputTensor, outputTensor);
+	torch::Tensor outputTensor = module->forward(inputTensor)
+		.to(torch::kCPU, torch::kFloat);
 
 	const float* output = outputTensor.data_ptr<float>();
 	float passWeight = output[2 * NUM_CARDS];

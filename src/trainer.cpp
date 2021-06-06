@@ -657,6 +657,7 @@ void Trainer::playRound()
 			{
 				brain->reset(s);
 			}
+			brain->calculateCorrelation(_round % 100 == 0);
 			brain->numLosses = 0;
 			brain->numBossLosses = 0;
 			brain->numPlayerLosses = 0;
@@ -1103,8 +1104,8 @@ void Trainer::saveBrains()
 						/*forceCPU=*/true);
 				}
 				brain->saveScan(folder + "/" + name + ".png");
-				//brain->saveCorrelationScan(
-				//	folder + "/" + name + "_correlation.png");
+				brain->saveCorrelationScan(
+					folder + "/" + name + "_correlation.png");
 
 				list << name << std::endl;
 			}

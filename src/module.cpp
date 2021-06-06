@@ -49,7 +49,7 @@ Module& Module::operator=(Module&& other)
 	return *this;
 }
 
-void Module::forward(const torch::Tensor& input, torch::Tensor& output) const
+torch::Tensor Module::forward(const torch::Tensor& input) const
 {
 	torch::Tensor s;
 	s = torch::relu(torch::linear(input, _fc1->weight, _fc1->bias));
@@ -57,7 +57,7 @@ void Module::forward(const torch::Tensor& input, torch::Tensor& output) const
 	s = torch::relu(torch::linear(s, _fc3->weight, _fc3->bias));
 	s = torch::relu(torch::linear(s, _fc4->weight, _fc4->bias));
 	s = torch::sigmoid(torch::linear(s, _fc5->weight, _fc5->bias));
-	output = s.to(torch::kCPU, torch::kFloat, /*non_blocking=*/true);
+	return s;
 }
 
 void Module::mutate(double deviationFactor)

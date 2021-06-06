@@ -19,6 +19,7 @@ public:
 	std::array<torch::Tensor, NUM_SEATS> viewTensorPerSeat;
 	std::array<torch::Tensor, NUM_SEATS> outputTensorPerSeat;
 	std::array<std::vector<float>, NUM_SEATS> viewBufferPerSeat;
+	torch::Tensor correlationTensor;
 	const Personality personality;
 	const size_t serialNumber;
 	const size_t motherNumber;
@@ -48,6 +49,8 @@ public:
 
 	static bool isNeural(Personality personality);
 	static const char* personalityName(Personality personality);
+
+	void calculateCorrelation(bool on);
 
 	void reset(size_t seat);
 	void evaluate(size_t seat);
