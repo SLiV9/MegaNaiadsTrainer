@@ -367,7 +367,7 @@ inline void updateViewBuffers(const Game& game,
 	}
 	for (size_t t = 0; t < NUM_SEATS; t++)
 	{
-		int tt = (1 + ((t + NUM_SEATS - activeSeat) % NUM_SEATS));
+		int tt = ((t + NUM_SEATS - activeSeat) % NUM_SEATS);
 		for (size_t c = 0; c < NUM_CARDS; c++)
 		{
 			buffer[(1 + NUM_SEATS + tt) * NUM_CARDS + c] =
