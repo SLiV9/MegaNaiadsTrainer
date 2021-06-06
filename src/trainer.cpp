@@ -367,13 +367,16 @@ inline void updateViewBuffers(const Game& game,
 	}
 	for (size_t t = 0; t < NUM_SEATS; t++)
 	{
+		Personality otherPersonality = game.players[t].brain->personality;
 		int tt = ((t + NUM_SEATS - activeSeat) % NUM_SEATS);
 		for (size_t c = 0; c < NUM_CARDS; c++)
 		{
 			buffer[(1 + NUM_SEATS + tt) * NUM_CARDS + c] =
 				state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
 			if (t == activeSeat
-				|| brain->personality == Personality::SPY)
+				|| brain->personality == Personality::SPY
+				|| (brain->personality == Personality::GOON
+					&& otherPersonality == Personality::BOSS))
 			{
 				buffer[(1 + tt) * NUM_CARDS + c] =
 					state[(1 + activeSeat) * NUM_CARDS + c];
@@ -385,13 +388,16 @@ inline void updateViewBuffers(const Game& game,
 						* state[(1 + NUM_SEATS + t) * NUM_CARDS + c];
 			}
 		}
-		Personality other = game.players[t].brain->personality;
 		size_t offset = (1 + NUM_SEATS + NUM_SEATS) * NUM_CARDS;
-		buffer[offset + tt] = (other == Personality::EMPTY);
+		buffer[offset + tt] = (otherPersonality == Personality::EMPTY);
 		offset += NUM_SEATS;
 		buffer[offset + tt] = game.players[t].hasPassed;
 		offset += NUM_SEATS;
-		buffer[offset + tt] = (other == Personality::PLAYER);
+		buffer[offset + tt] = (otherPersonality == Personality::PLAYER
+				|| otherPersonality == Personality::GREEDY
+				|| otherPersonality == Personality::DUMMY);
+		offset += NUM_SEATS;
+		buffer[offset + tt] = (otherPersonality == Personality::BOSS);
 	}
 }
 
