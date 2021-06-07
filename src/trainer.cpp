@@ -58,10 +58,10 @@ inline void debugPrintCard(size_t card)
 	{
 		switch (card - NUM_SUITS * NUM_FACES_PER_SUIT)
 		{
-			case 0: std::cout << "FCA"; return; break;
+			case 0: std::cout << "CAf"; return; break;
 			case 1: std::cout << "JKR"; return; break;
 			case 2: std::cout << "H12"; return; break;
-			case 3: std::cout << "FSA"; return; break;
+			case 3: std::cout << "SAf"; return; break;
 		}
 	}
 	const char* SUITS[NUM_SUITS] = {"C", "D", "H", "S"};
