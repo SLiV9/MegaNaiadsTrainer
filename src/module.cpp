@@ -63,58 +63,41 @@ torch::Tensor Module::forward(const torch::Tensor& input) const
 void Module::mutate(double deviationFactor)
 {
 	std::vector<torch::Tensor>& myParams = parameters();
-
-	std::vector<uint8_t> yesOrNo(myParams.size(), false);
-	std::random_device rd;
-	std::mt19937 rng(rd());
-	for (size_t i = 1; i < yesOrNo.size(); i += 2)
-	{
-		yesOrNo[i] = true;
-	}
-	std::shuffle(yesOrNo.begin(), yesOrNo.end(), rng);
-
 	for (size_t i = 0; i < myParams.size(); i++)
 	{
-		if (yesOrNo[i])
-		{
-			torch::Tensor& param = myParams[i];
-			// Take the standard normal deviation.
-			torch::Tensor mutationTensor = torch::randn(param.sizes(),
-				torch::TensorOptions().device(param.device())
-					.dtype(param.dtype()));
-			// Set half the values to 0.
-			torch::Tensor selectionTensor = torch::randint(0, 2, param.sizes(),
-				torch::TensorOptions().device(param.device())
-					.dtype(torch::kBool));
-			mutationTensor.mul_(selectionTensor);
-			// Scale it down to the deviationFactor.
-			mutationTensor.mul_(deviationFactor);
-			// Add that to the existing parameter.
-			param.add_(mutationTensor);
-		}
+		torch::Tensor& param = myParams[i];
+		// Take the standard normal deviation.
+		torch::Tensor mutationTensor = torch::randn(param.sizes(),
+			torch::TensorOptions().device(param.device()).dtype(param.dtype()));
+		// Set half the values to 0.
+		torch::Tensor selectionTensor = torch::randint(0, 2, param.sizes(),
+			torch::TensorOptions().device(param.device()).dtype(torch::kBool));
+		mutationTensor.mul_(selectionTensor);
+		// Scale it down to the deviationFactor.
+		mutationTensor.mul_(deviationFactor);
+		// Add that to the existing parameter.
+		param.add_(mutationTensor);
 	}
 }
 
 void Module::spliceWith(const Module& other)
 {
 	std::vector<torch::Tensor>& myParams = parameters();
-
-	std::vector<uint8_t> yesOrNo(myParams.size(), false);
-	std::random_device rd;
-	std::mt19937 rng(rd());
-	for (size_t i = 1; i < yesOrNo.size(); i += 2)
-	{
-		yesOrNo[i] = true;
-	}
-	std::shuffle(yesOrNo.begin(), yesOrNo.end(), rng);
-
 	const std::vector<torch::Tensor>& otherParams = other.parameters();
 	for (size_t i = 0; i < myParams.size() && i < otherParams.size(); i++)
 	{
-		if (yesOrNo[i])
-		{
-			// Copy the parameter of the other module in its entirity.
-			myParams[i].copy_(otherParams[i], /*non_blocking=*/true);
-		}
+		torch::Tensor& param = myParams[i];
+		// Select half the weights of this parameter.
+		torch::Tensor selectionTensor = torch::randint(0, 2, param.sizes(),
+			torch::TensorOptions().device(param.device()).dtype(torch::kBool));
+		// Set the selected weights to zero, as they will be replaced.
+		param.mul_(selectionTensor);
+		// Invert the selection.
+		selectionTensor.logical_not_();
+		// Take those weights from the other module.
+		selectionTensor = selectionTensor.to(param.dtype());
+		selectionTensor.mul_(otherParams[i]);
+		// Add the mutations.
+		param.add_(selectionTensor);
 	}
 }
