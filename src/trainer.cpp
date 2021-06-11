@@ -1115,7 +1115,9 @@ void Trainer::saveBrains()
 				brain->saveCorrelationScan(
 					folder + "/" + name + "_correlation.png");
 
-				list << name << std::endl;
+				list << name << " "
+					<< (0.1 * int(10 * brain->objectiveScore))
+					<< std::endl;
 			}
 		}
 	}
@@ -1151,13 +1153,23 @@ void Trainer::resume(std::string session, size_t round)
 			continue;
 		}
 		std::string name = line;
-		std::stringstream strm = std::stringstream(line);
-		std::string personality;
-		if (!std::getline(strm, personality, '_')
-			|| personality.empty())
 		{
-			std::cerr << "Ignoring '" << line << "'" << std::endl;
-			continue;
+			std::stringstream strm = std::stringstream(line);
+			if (!std::getline(strm, name, ' ')
+				|| name.empty())
+			{
+				name = line;
+			}
+		}
+		std::string personality;
+		{
+			std::stringstream strm = std::stringstream(name);
+			if (!std::getline(strm, personality, '_')
+				|| personality.empty())
+			{
+				std::cerr << "Ignoring '" << line << "'" << std::endl;
+				continue;
+			}
 		}
 		size_t p = NUM_PERSONALITIES + 1000;
 		for (size_t pp = 0; pp < NUM_PERSONALITIES; pp++)
