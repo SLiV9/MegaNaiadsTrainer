@@ -18,6 +18,8 @@ const char* TrainingBrain::personalityName(Personality p)
 		case Personality::NORMAL1: return "A";
 		case Personality::NORMAL2: return "B";
 		case Personality::NORMAL3: return "C";
+		case Personality::NORMAL4: return "D";
+		case Personality::NORMAL5: return "E";
 		case Personality::PLAYER: return "X";
 		case Personality::FOOL: return "fool";
 		case Personality::ARTIST: return "artist";

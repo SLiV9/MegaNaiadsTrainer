@@ -10,6 +10,8 @@ constexpr size_t NUM_CARDS = NUM_SEATS * NUM_FACES_PER_SUIT + NUM_FAKE_CARDS;
 constexpr size_t NUM_CARDS_PER_HAND = 3;
 constexpr size_t ACTION_SIZE = 2 * NUM_CARDS + 2;
 
+#define ENABLE_CHEATING false
+
 enum class Personality
 {
 	// Knight, Brute, Prince and Swindler all play the same.
@@ -20,6 +22,8 @@ enum class Personality
 	NORMAL1,
 	NORMAL2,
 	NORMAL3,
+	NORMAL4,
+	NORMAL5,
 	// In-game use:
 	FOOL,
 	ARTIST,
@@ -39,7 +43,11 @@ enum class Personality
 	// No longer used:
 	DUELIST,
 };
+#if ENABLE_CHEATING
 constexpr size_t NUM_NORMAL_PERSONALITIES = size_t(Personality::DRUNK) + 1;
+#else
+constexpr size_t NUM_NORMAL_PERSONALITIES = size_t(Personality::NORMAL5) + 1;
+#endif
 constexpr size_t NUM_PERSONALITIES = size_t(Personality::EMPTY) + 1;
 constexpr size_t NUM_BRAINS_PER_PERSONALITY = 25;
 

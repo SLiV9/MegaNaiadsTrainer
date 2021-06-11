@@ -850,6 +850,20 @@ void Trainer::playRound()
 	}
 }
 
+inline void ensureFolderExists(const std::string& folder)
+{
+	struct stat buffer;
+	if (stat(folder.c_str(), &buffer) != 0)
+	{
+		std::cout << "Making directory " << folder << std::endl;
+#ifdef __unix__
+		mkdir(folder.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+#else
+		mkdir(folder.c_str());
+#endif
+	}
+}
+
 void Trainer::sortBrains()
 {
 	auto start = std::chrono::high_resolution_clock::now();
@@ -912,6 +926,13 @@ void Trainer::sortBrains()
 			});
 	}
 
+	std::string folder = BRAIN_OUTPUT_FOLDER "/" + std::to_string(_startTime);
+	ensureFolderExists(folder);
+
+	std::ofstream progress;
+	progress.open(folder + "/progress.txt", std::ofstream::app);
+	progress << std::endl << "Round " << _round << ":" << std::endl;
+
 	std::cout << std::endl;
 	for (size_t p = 0; p < NUM_PERSONALITIES; p++)
 	{
@@ -937,13 +958,6 @@ void Trainer::sortBrains()
 			}
 			if (num == 0)
 			{
-				std::cout << (i + 1) << ":\t"
-					"" << TrainingBrain::personalityName(
-						brain->personality) << ""
-					"" << brain->serialNumber << ""
-					" (" << brain->motherNumber << ""
-					"+" << brain->fatherNumber << ")"
-					" did not play any games!" << std::endl;
 				continue;
 			}
 			int surv = num - brain->numLosses;
@@ -1007,6 +1021,22 @@ void Trainer::sortBrains()
 			" " << (0.1 * int(100 * 10 * pAverageConfidence)) << "%"
 			"" << std::endl;
 		std::cout << std::endl;
+
+		progress << ""
+			"" << TrainingBrain::personalityName((Personality) p) << ""
+			" scored " << (0.1 * int(10 * pAverageScore)) << ""
+			", survived"
+			" " << (0.1 * int(100 * 10 * pSurv / pNum)) << "%"
+			" of games"
+			", played"
+			" " << (0.1 * int(10 * pAverageTurnsBeforePass)) << " turns"
+			" and had average hand value"
+			" " << (0.1 * int(10 * pTotalHandValue / pNum)) << ""
+			" (win: " << (0.1 * int(10 * pAverageWinValue)) << ""
+			", loss: " << (0.1 * int(10 * pAverageLossValue)) << ")"
+			" with confidence"
+			" " << (0.1 * int(100 * 10 * pAverageConfidence)) << "%"
+			"" << std::endl;
 	}
 
 	// Timing:
@@ -1077,18 +1107,7 @@ void Trainer::saveBrains()
 	std::mt19937 rng(rd());
 
 	std::string folder = BRAIN_OUTPUT_FOLDER "/" + std::to_string(_startTime);
-	{
-		struct stat buffer;
-		if (stat(folder.c_str(), &buffer) != 0)
-		{
-			std::cout << "Making directory " << folder << std::endl;
-#ifdef __unix__
-			mkdir(folder.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-#else
-			mkdir(folder.c_str());
-#endif
-		}
-	}
+	ensureFolderExists(folder);
 
 	std::ofstream list;
 	list.open(folder + "/round" + std::to_string(_round) + ".txt");
@@ -1098,6 +1117,12 @@ void Trainer::saveBrains()
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
 			auto& brain = _brainsPerPersonality[p][i];
+			int num = 0;
+			for (size_t s = 0; s < NUM_SEATS; s++)
+			{
+				num += brain->numGamesPerSeat[s];
+			}
+			if (num > 0)
 			{
 				std::string name;
 				name += TrainingBrain::personalityName(brain->personality);
