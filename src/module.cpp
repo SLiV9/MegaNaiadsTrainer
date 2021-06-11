@@ -82,6 +82,11 @@ void Module::mutate(double deviationFactor)
 			torch::Tensor mutationTensor = torch::randn(param.sizes(),
 				torch::TensorOptions().device(param.device())
 					.dtype(param.dtype()));
+			// Set half the values to 0.
+			torch::Tensor selectionTensor = torch::randint(0, 2, param.sizes(),
+				torch::TensorOptions().device(param.device())
+					.dtype(torch::kBool));
+			mutationTensor.mul_(selectionTensor);
 			// Scale it down to the deviationFactor.
 			mutationTensor.mul_(deviationFactor);
 			// Add that to the existing parameter.

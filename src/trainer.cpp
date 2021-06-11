@@ -15,6 +15,8 @@
 #include "trainingbrain.hpp"
 
 
+constexpr size_t ROUNDS_BETWEEN_SAVES = 100;
+
 struct Player
 {
 	std::shared_ptr<TrainingBrain> brain;
@@ -663,7 +665,7 @@ void Trainer::playRound()
 			{
 				brain->reset(s);
 			}
-			brain->calculateCorrelation(_round % 100 == 0);
+			brain->calculateCorrelation(_round % ROUNDS_BETWEEN_SAVES == 0);
 			brain->numLosses = 0;
 			brain->numBossLosses = 0;
 			brain->numPlayerLosses = 0;
@@ -821,7 +823,7 @@ void Trainer::playRound()
 		int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
 			end - start).count();
 		std::cout << "Playing round took " << elapsed << "ms"
-			" (" << (elapsed / games.size()) << "ms per game)"
+			" (" << (0.1f * int(10 * elapsed / games.size())) << "ms per game)"
 			"" << std::endl;
 		start = end;
 	}
@@ -1237,7 +1239,7 @@ void Trainer::train()
 
 		playRound();
 		sortBrains();
-		if (_round % 100 == 0)
+		if (_round % ROUNDS_BETWEEN_SAVES == 0)
 		{
 			saveBrains();
 		}
