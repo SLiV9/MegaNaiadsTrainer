@@ -560,6 +560,14 @@ inline void tallyGameResult(const Game& game,
 		}
 		brain->totalHandValue += handValues[s];
 		brain->totalTurnsPlayed += game.players[s].turnOfPass + 1;
+
+		for (size_t c = 0; c < NUM_CARDS; c++)
+		{
+			if (state[(1 + s) * NUM_CARDS + c] > 0)
+			{
+				brain->totalSuitCount[c % NUM_SUITS] += 1;
+			}
+		}
 	}
 }
 
@@ -674,6 +682,10 @@ void Trainer::playRound()
 			brain->totalHandValue = 0;
 			brain->totalLosingHandValue = 0;
 			brain->totalSurvivingHandValue = 0;
+			for (size_t suit = 0; suit < NUM_SUITS; suit++)
+			{
+				brain->totalSuitCount[suit] = 0;
+			}
 			brain->objectiveScore = 0;
 		}
 	}
@@ -895,7 +907,20 @@ void Trainer::sortBrains()
 			float averageLosses = 0.25 * num;
 			brain->objectiveScore += 100.0
 				* (averageLosses - brain->numLosses)
-				 / averageLosses;
+				/ averageLosses;
+			// Disincentive: do not have too much bias towards one suit.
+			// The squaring makes the biases absolute but also decreases
+			// the significance of randomly occurring input bias.
+			// The value 400 is chosen so that a TSSB of 2.5 gives -1000.
+			float totalSquaredSuitBias = 0.0f;
+			for (size_t suit = 0; suit < NUM_SUITS; suit++)
+			{
+				float suitBias = (brain->totalSuitCount[suit] / num)
+					- (1.0f * NUM_CARDS_PER_HAND / NUM_SUITS);
+				totalSquaredSuitBias += suitBias * suitBias;
+			}
+			brain->objectiveScore -= 400.0 * totalSquaredSuitBias;
+			// Some personalities have their own objectives.
 			switch (brain->personality)
 			{
 				case Personality::GOON:
@@ -947,6 +972,7 @@ void Trainer::sortBrains()
 		float pTotalHandValue = 0;
 		float pTotalLossValue = 0;
 		float pTotalWinValue = 0;
+		std::array<float, NUM_SUITS> pTotalSuitCount = { 0 };
 		float pTotalScore = 0;
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
@@ -969,21 +995,35 @@ void Trainer::sortBrains()
 				/ std::max(1, surv);
 			float averageLossValue = brain->totalLosingHandValue
 				/ std::max(1, num - surv);
+			std::array<float, NUM_SUITS> suitBias = { 0 };
+			float totalSquaredSuitBias = 0;
+			for (size_t suit = 0; suit < NUM_SUITS; suit++)
+			{
+				suitBias[suit] = (brain->totalSuitCount[suit] / num)
+					- (1.0f * NUM_CARDS_PER_HAND / NUM_SUITS);
+				totalSquaredSuitBias += suitBias[suit] * suitBias[suit];
+			}
 			std::cout << (i + 1) << ":\t"
 				"" << TrainingBrain::personalityName(brain->personality) << ""
 				"" << brain->serialNumber << ""
 				" (" << brain->motherNumber << ""
 				"+" << brain->fatherNumber << ")"
 				" scored " << (0.1 * int(10 * brain->objectiveScore)) << ""
-				", survived"
+				", surv"
 				" " << (0.1 * int(100 * 10 * surv / num)) << "%"
-				", played"
+				","
 				" " << (0.1 * int(10 * averageTurnsBeforePass)) << " turns"
-				", hand value"
+				", val"
 				" " << (0.1 * int(10 * brain->totalHandValue / num)) << ""
 				" (win: " << (0.1 * int(10 * averageWinValue)) << ""
 				", loss: " << (0.1 * int(10 * averageLossValue)) << ")"
-				", confidence"
+				", bias " << (0.1 * int(10 * totalSquaredSuitBias)) << ""
+				" (C: " << (0.1 * int(10 * suitBias[0])) << ""
+				", D: " << (0.1 * int(10 * suitBias[1])) << ""
+				", H: " << (0.1 * int(10 * suitBias[2])) << ""
+				", S: " << (0.1 * int(10 * suitBias[3])) << ""
+				")"
+				", cnfd"
 				" " << (0.1 * int(100 * 10 * averageConfidence)) << "%"
 				"" << std::endl;
 			pSurv += surv;
@@ -993,6 +1033,10 @@ void Trainer::sortBrains()
 			pTotalHandValue += brain->totalHandValue;
 			pTotalWinValue += brain->totalSurvivingHandValue;
 			pTotalLossValue += brain->totalLosingHandValue;
+			for (size_t suit = 0; suit < NUM_SUITS; suit++)
+			{
+				pTotalSuitCount[suit] += brain->totalSuitCount[suit];
+			}
 			pTotalScore += brain->objectiveScore;
 		}
 		if (pNum == 0)
@@ -1005,6 +1049,14 @@ void Trainer::sortBrains()
 			/ std::max(1, pTotalTurnsPlayed);
 		float pAverageWinValue = pTotalWinValue / std::max(1, pSurv);
 		float pAverageLossValue = pTotalLossValue / std::max(1, pNum - pSurv);
+		std::array<float, NUM_SUITS> suitBias = { 0 };
+		float totalSquaredSuitBias = 0;
+		for (size_t suit = 0; suit < NUM_SUITS; suit++)
+		{
+			suitBias[suit] = pTotalSuitCount[suit] / pNum
+				- (1.0f * NUM_CARDS_PER_HAND / NUM_SUITS);
+			totalSquaredSuitBias += suitBias[suit] * suitBias[suit];
+		}
 		std::cout << "Overall,"
 			" " << TrainingBrain::personalityName((Personality) p) << ""
 			" scored " << (0.1 * int(10 * pAverageScore)) << ""
@@ -1017,6 +1069,12 @@ void Trainer::sortBrains()
 			" " << (0.1 * int(10 * pTotalHandValue / pNum)) << ""
 			" (win: " << (0.1 * int(10 * pAverageWinValue)) << ""
 			", loss: " << (0.1 * int(10 * pAverageLossValue)) << ")"
+			", bias " << (0.1 * int(10 * totalSquaredSuitBias)) << ""
+			" (C: " << (0.1 * int(10 * suitBias[0])) << ""
+			", D: " << (0.1 * int(10 * suitBias[1])) << ""
+			", H: " << (0.1 * int(10 * suitBias[2])) << ""
+			", S: " << (0.1 * int(10 * suitBias[3])) << ""
+			")"
 			" with confidence"
 			" " << (0.1 * int(100 * 10 * pAverageConfidence)) << "%"
 			"" << std::endl;
@@ -1034,6 +1092,12 @@ void Trainer::sortBrains()
 			" " << (0.1 * int(10 * pTotalHandValue / pNum)) << ""
 			" (win: " << (0.1 * int(10 * pAverageWinValue)) << ""
 			", loss: " << (0.1 * int(10 * pAverageLossValue)) << ")"
+			", bias " << (0.1 * int(10 * totalSquaredSuitBias)) << ""
+			" (C: " << (0.1 * int(10 * suitBias[0])) << ""
+			", D: " << (0.1 * int(10 * suitBias[1])) << ""
+			", H: " << (0.1 * int(10 * suitBias[2])) << ""
+			", S: " << (0.1 * int(10 * suitBias[3])) << ""
+			")"
 			" with confidence"
 			" " << (0.1 * int(100 * 10 * pAverageConfidence)) << "%"
 			"" << std::endl;

@@ -32,6 +32,7 @@ public:
 	float totalHandValue = 0;
 	float totalLosingHandValue = 0;
 	float totalSurvivingHandValue = 0;
+	std::array<float, NUM_SUITS> totalSuitCount = { 0 };
 	float objectiveScore = 0;
 
 private:
