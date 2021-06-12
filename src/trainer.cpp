@@ -669,9 +669,12 @@ void Trainer::playRound()
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
 			auto& brain = _brainsPerPersonality[p][i];
+
+			brain->numGames = 0;
 			for (size_t s = 0; s < NUM_SEATS; s++)
 			{
 				brain->reset(s);
+				brain->numGames += brain->numGamesPerSeat[s];
 			}
 			brain->calculateCorrelation(_round % ROUNDS_BETWEEN_SAVES == 0);
 			brain->numLosses = 0;
@@ -791,7 +794,7 @@ void Trainer::playRound()
 			{
 				for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 				{
-					_brainsPerPersonality[p][i]->evaluate(s);
+					_brainsPerPersonality[p][i]->evaluate(s, t);
 				}
 			}
 
@@ -885,18 +888,13 @@ void Trainer::sortBrains()
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
 			auto& brain = _brainsPerPersonality[p][i];
-			int num = 0;
-			for (size_t s = 0; s < NUM_SEATS; s++)
-			{
-				num += brain->numGamesPerSeat[s];
-			}
-			if (num == 0)
+			if (brain->numGames == 0)
 			{
 				brain->objectiveScore = 0;
 				continue;
 			}
 			// Main objective: get highest possible hand value.
-			float handValue = (brain->totalHandValue / num);
+			float handValue = (brain->totalHandValue / brain->numGames);
 			// Set the baseline to the value of the starting hand (DUMMY).
 			float averageHandValue = 15.0f;
 			float goodHandValue = 30.0f;
@@ -904,7 +902,7 @@ void Trainer::sortBrains()
 				* (handValue - averageHandValue)
 				/ (goodHandValue - averageHandValue);
 			// Bonus objective: lose as few games as possible.
-			float averageLosses = 0.25 * num;
+			float averageLosses = 0.25 * brain->numGames;
 			brain->objectiveScore += 100.0
 				* (averageLosses - brain->numLosses)
 				/ averageLosses;
@@ -915,7 +913,8 @@ void Trainer::sortBrains()
 			float totalSquaredSuitBias = 0.0f;
 			for (size_t suit = 0; suit < NUM_SUITS; suit++)
 			{
-				float suitBias = (brain->totalSuitCount[suit] / num)
+				float suitBias =
+					(brain->totalSuitCount[suit] / brain->numGames)
 					- (1.0f * NUM_CARDS_PER_HAND / NUM_SUITS);
 				totalSquaredSuitBias += suitBias * suitBias;
 			}
@@ -977,15 +976,11 @@ void Trainer::sortBrains()
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
 			auto& brain = _brainsPerPersonality[p][i];
-			int num = 0;
-			for (size_t s = 0; s < NUM_SEATS; s++)
-			{
-				num += brain->numGamesPerSeat[s];
-			}
-			if (num == 0)
+			if (brain->numGames == 0)
 			{
 				continue;
 			}
+			int num = brain->numGames;
 			int surv = num - brain->numLosses;
 			float averageTurnsBeforePass = 1.0
 				* brain->totalTurnsPlayed / num;
@@ -1181,12 +1176,7 @@ void Trainer::saveBrains()
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
 			auto& brain = _brainsPerPersonality[p][i];
-			int num = 0;
-			for (size_t s = 0; s < NUM_SEATS; s++)
-			{
-				num += brain->numGamesPerSeat[s];
-			}
-			if (num > 0)
+			if (brain->numGames > 0)
 			{
 				std::string name;
 				name += TrainingBrain::personalityName(brain->personality);

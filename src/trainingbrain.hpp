@@ -20,10 +20,14 @@ public:
 	std::array<torch::Tensor, NUM_SEATS> outputTensorPerSeat;
 	std::array<std::vector<float>, NUM_SEATS> viewBufferPerSeat;
 	torch::Tensor correlationTensor;
+	torch::Tensor correlationTensor2;
+	torch::Tensor inputBiasTensor;
+	torch::Tensor outputBiasTensor;
 	const Personality personality;
 	const size_t serialNumber;
 	const size_t motherNumber;
 	const size_t fatherNumber;
+	int numGames = 0;
 	int numLosses = 0;
 	int numBossLosses = 0;
 	int numPlayerLosses = 0;
@@ -54,7 +58,7 @@ public:
 	void calculateCorrelation(bool on);
 
 	void reset(size_t seat);
-	void evaluate(size_t seat);
+	void evaluate(size_t seat, size_t turn);
 	void cycle(size_t seat);
 
 	TrainingBrain makeMutation(double deviationFactor) const;

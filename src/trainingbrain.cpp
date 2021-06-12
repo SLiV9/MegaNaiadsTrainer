@@ -104,9 +104,24 @@ void TrainingBrain::calculateCorrelation(bool on)
 		correlationTensor = torch::zeros(
 			{int(ACTION_SIZE), int(NUM_VIEW_SETS * NUM_CARDS)},
 			torch::kFloat);
+		correlationTensor2 = torch::zeros(
+			{int(ACTION_SIZE), int(NUM_VIEW_SETS * NUM_CARDS)},
+			torch::kFloat);
+		inputBiasTensor = torch::zeros(
+			{1 + NUM_SEATS + 1 + NUM_SEATS, int(NUM_VIEW_SETS * NUM_CARDS)},
+			torch::kFloat);
+		outputBiasTensor = torch::zeros(
+			int(ACTION_SIZE),
+			torch::kFloat);
 		if (ENABLE_CUDA)
 		{
 			correlationTensor = correlationTensor.contiguous().to(
+				torch::kCUDA, torch::kHalf, /*non_blocking=*/true);
+			correlationTensor2 = correlationTensor2.contiguous().to(
+				torch::kCUDA, torch::kHalf, /*non_blocking=*/true);
+			inputBiasTensor = inputBiasTensor.contiguous().to(
+				torch::kCUDA, torch::kHalf, /*non_blocking=*/true);
+			outputBiasTensor = outputBiasTensor.contiguous().to(
 				torch::kCUDA, torch::kHalf, /*non_blocking=*/true);
 		}
 	}
@@ -116,7 +131,7 @@ void TrainingBrain::calculateCorrelation(bool on)
 	}
 }
 
-void TrainingBrain::evaluate(size_t seat)
+void TrainingBrain::evaluate(size_t seat, size_t turn)
 {
 	if (!TrainingBrain::isNeural(personality))
 	{
@@ -152,14 +167,35 @@ void TrainingBrain::evaluate(size_t seat)
 	if (correlationTensor.size(0) > 0)
 	{
 		// Scale [0, 1] to [-1, 1].
-		//torch::Tensor weight = torch::add(
-		//	torch::mul(viewTensorPerSeat[seat], 2.0f),
-		//	-1.0f);
-		// Calculate outer product and add that to the existing correlation.
+		torch::Tensor scaledOutputTensor = torch::mul(
+			torch::add(outputTensor, -0.5f),
+			2.0f);
 		for (size_t i = 0; i < numGamesPerSeat[seat]; i++)
 		{
-			const torch::Tensor& weight = viewTensorPerSeat[seat];
-			correlationTensor.add_(outputTensor[i].ger(weight[i]));
+			const torch::Tensor& input = viewTensorPerSeat[seat][i];
+			// Do not track correlation for inputs where we have passed,
+			// as the output will not be used anyway thus is not relevant.
+			size_t selfPassOffset = (1 + NUM_SEATS + NUM_SEATS) * NUM_CARDS
+				+ NUM_SEATS;
+			torch::Tensor selfPassTensor = input[selfPassOffset].to(
+				torch::kCPU, torch::kFloat);
+			if (*(selfPassTensor.data_ptr<float>()) > 0)
+			{
+				continue;
+			}
+			// Calculate outer product and add that to the existing correlation.
+			correlationTensor.add_(outputTensor[i].ger(input));
+			correlationTensor2.add_(scaledOutputTensor[i].ger(input));
+			// Remember inputs so we can compare those to the correlation.
+			if (turn == 0)
+			{
+				inputBiasTensor[0].add_(input);
+				inputBiasTensor[1 + seat].add_(input);
+			}
+			inputBiasTensor[1 + NUM_SEATS].add_(input);
+			inputBiasTensor[1 + NUM_SEATS + 1 + seat].add_(input);
+			// Remember the output so we can compare those to the correlation.
+			outputBiasTensor.add_(scaledOutputTensor[i]);
 		}
 	}
 
@@ -410,7 +446,7 @@ void TrainingBrain::saveScan(const std::string& filepath)
 			{
 				int xx = xOfBlock + x;
 				int yy = yOfBlock + y;
-				int d = y - heightOfGradient / 2;
+				int d = y - h / 2;
 				if (2 * x < w) d *= -1;
 				float v = -1.2f + 2.4f * (x + d) / w;
 				uint8_t pix = paletteIndexFromValue(v, 1.0f);
@@ -475,16 +511,22 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 
 	int margin = 10;
 	int separation = 2;
-	int padding = 10;
+	int padding = 20;
 	int widthOfBias = 5;
-	int heightOfGradient = 50;
+	int heightOfGradient = 30;
 
 	// Image dimensions:
 	int imagew = 2 * margin
 		+ NUM_VIEW_SETS * (NUM_CARDS + separation)
+		+ widthOfBias
+		+ padding
 		+ widthOfBias;
 	int imageh = 2 * margin
-		+ ((ACTION_SIZE + NUM_CARDS - 1) / NUM_CARDS) * (NUM_CARDS + separation)
+		+ ACTION_SIZE + (ACTION_SIZE / NUM_CARDS) * separation
+		+ padding
+		+ ACTION_SIZE + (ACTION_SIZE / NUM_CARDS) * separation
+		+ padding
+		+ (1 + NUM_SEATS + 1 + NUM_SEATS)
 		+ padding + heightOfGradient;
 
 	std::cout << "Saving c-scan"
@@ -502,9 +544,90 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 	std::vector<uint8_t> data(numBytes, 0);
 	int xOfBlock = margin;
 	int yOfBlock = margin;
-	float weightMultiplier = 5.00f;
+	float weightMultiplier = 100.00f;
 
 	std::array<float, ACTION_SIZE> bias;
+
+	{
+		int w = NUM_VIEW_SETS * NUM_CARDS;
+		int h = ACTION_SIZE;
+		const auto& tt = correlationTensor2.to(torch::kCPU, torch::kFloat);
+		float* weight = tt.data_ptr<float>();
+		float _boundsCheck = *(tt[h - 1][w - 1].data_ptr<float>());
+		for (int y = 0; y < h; y++)
+		{
+			bias[y] = 0;
+			for (int x = 0; x < w; x++)
+			{
+				int xx = xOfBlock + (x / NUM_CARDS) * (NUM_CARDS + separation)
+					+ (x % NUM_CARDS);
+				int yy = yOfBlock + (y / NUM_CARDS) * (NUM_CARDS + separation)
+					+ (y % NUM_CARDS);
+				float v = weight[y * w + x] / std::max(1, totalTurnsPlayed);
+				bias[y] += v;
+				uint8_t pix = paletteIndexFromValue(v, weightMultiplier);
+				histogram[pix] += 1;
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * SCAN_BITDEPTH);
+			}
+			bias[y] = bias[y] / w;
+		}
+		xOfBlock += (w / NUM_CARDS) * (NUM_CARDS + separation);
+	}
+
+	{
+		int h = ACTION_SIZE;
+		for (int y = 0; y < h; y += 1)
+		{
+			float v = bias[y];
+			uint8_t pix = paletteIndexFromValue(v, weightMultiplier);
+			histogram[pix] += 1;
+			for (int x = 0; x < widthOfBias; x++)
+			{
+				int xx = xOfBlock + x;
+				int yy = yOfBlock + (y / NUM_CARDS) * (NUM_CARDS + separation)
+					+ (y % NUM_CARDS);
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * SCAN_BITDEPTH);
+			}
+		}
+		xOfBlock += widthOfBias + padding;
+	}
+
+	weightMultiplier = 20.00f;
+
+	{
+		int h = ACTION_SIZE;
+		const auto& tt = outputBiasTensor.to(torch::kCPU, torch::kFloat);
+		float* weight = tt.data_ptr<float>();
+		float _boundsCheck = *(tt[h - 1].data_ptr<float>());
+		for (int y = 0; y < h; y += 1)
+		{
+			float v = weight[y] / std::max(1, totalTurnsPlayed);
+			uint8_t pix = paletteIndexFromValue(v, weightMultiplier);
+			histogram[pix] += 1;
+			for (int x = 0; x < widthOfBias; x++)
+			{
+				int xx = xOfBlock + x;
+				int yy = yOfBlock + (y / NUM_CARDS) * (NUM_CARDS + separation)
+					+ (y % NUM_CARDS);
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * SCAN_BITDEPTH);
+			}
+		}
+		xOfBlock += widthOfBias + padding;
+	}
+
+	xOfBlock = margin;
+	yOfBlock += ACTION_SIZE + (ACTION_SIZE / NUM_CARDS) * separation;
+	yOfBlock += padding;
+	weightMultiplier = 10.00f;
 
 	{
 		int w = NUM_VIEW_SETS * NUM_CARDS;
@@ -556,6 +679,48 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 		xOfBlock += widthOfBias + padding;
 	}
 
+	xOfBlock = margin;
+	yOfBlock += ACTION_SIZE + (ACTION_SIZE / NUM_CARDS) * separation;
+	yOfBlock += padding;
+	weightMultiplier = 5.00f;
+
+	{
+		int w = NUM_VIEW_SETS * NUM_CARDS;
+		int h = 1 + NUM_SEATS + 1 + NUM_SEATS;
+		const auto& tt = inputBiasTensor.to(torch::kCPU, torch::kFloat);
+		float* weight = tt.data_ptr<float>();
+		float _boundsCheck = *(tt[h - 1][w - 1].data_ptr<float>());
+		for (int y = 0; y < h; y++)
+		{
+			for (int x = 0; x < w; x++)
+			{
+				int xx = xOfBlock + (x / NUM_CARDS) * (NUM_CARDS + separation)
+					+ (x % NUM_CARDS);
+				int yy = yOfBlock + y;
+				float v = weight[y * w + x];
+				if (y < 1 + NUM_SEATS)
+				{
+					v = v / std::max(1, numGames);
+				}
+				else
+				{
+					v = v / std::max(1, totalTurnsPlayed);
+				}
+				if (y % (1 + NUM_SEATS) > 0)
+				{
+					v *= NUM_SEATS;
+				}
+				uint8_t pix = paletteIndexFromValue(v, weightMultiplier);
+				histogram[pix] += 1;
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * SCAN_BITDEPTH);
+			}
+		}
+		xOfBlock += (w / NUM_CARDS) * (NUM_CARDS + separation);
+	}
+
 	if (heightOfGradient > 3)
 	{
 		xOfBlock = margin;
@@ -568,7 +733,7 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 			{
 				int xx = xOfBlock + x;
 				int yy = yOfBlock + y;
-				int d = y - heightOfGradient / 2;
+				int d = y - h / 2;
 				if (2 * x < w) d *= -1;
 				float v = -1.2f + 2.4f * (x + d) / w;
 				uint8_t pix = paletteIndexFromValue(v, 1.0f);
