@@ -511,9 +511,9 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 
 	int margin = 10;
 	int separation = 2;
-	int padding = 20;
+	int padding = 10;
 	int widthOfBias = 5;
-	int heightOfGradient = 30;
+	int heightOfGradient = 20;
 
 	// Image dimensions:
 	int imagew = 2 * margin
@@ -522,6 +522,8 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 		+ padding
 		+ widthOfBias;
 	int imageh = 2 * margin
+		+ ACTION_SIZE + (ACTION_SIZE / NUM_CARDS) * separation
+		+ padding
 		+ ACTION_SIZE + (ACTION_SIZE / NUM_CARDS) * separation
 		+ padding
 		+ ACTION_SIZE + (ACTION_SIZE / NUM_CARDS) * separation
@@ -544,7 +546,7 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 	std::vector<uint8_t> data(numBytes, 0);
 	int xOfBlock = margin;
 	int yOfBlock = margin;
-	float weightMultiplier = 100.00f;
+	float weightMultiplier = 25.00f;
 
 	std::array<float, ACTION_SIZE> bias;
 
@@ -598,7 +600,7 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 		xOfBlock += widthOfBias + padding;
 	}
 
-	weightMultiplier = 20.00f;
+	weightMultiplier = 5.00f;
 
 	{
 		int h = ACTION_SIZE;
@@ -624,10 +626,11 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 		xOfBlock += widthOfBias + padding;
 	}
 
-	xOfBlock = margin;
 	yOfBlock += ACTION_SIZE + (ACTION_SIZE / NUM_CARDS) * separation;
 	yOfBlock += padding;
-	weightMultiplier = 10.00f;
+
+	xOfBlock = margin;
+	weightMultiplier = 5.00f;
 
 	{
 		int w = NUM_VIEW_SETS * NUM_CARDS;
@@ -679,9 +682,10 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 		xOfBlock += widthOfBias + padding;
 	}
 
-	xOfBlock = margin;
 	yOfBlock += ACTION_SIZE + (ACTION_SIZE / NUM_CARDS) * separation;
 	yOfBlock += padding;
+
+	xOfBlock = margin;
 	weightMultiplier = 5.00f;
 
 	{
@@ -720,6 +724,76 @@ void TrainingBrain::saveCorrelationScan(const std::string& filepath)
 		}
 		xOfBlock += (w / NUM_CARDS) * (NUM_CARDS + separation);
 	}
+
+	yOfBlock += 1 + NUM_SEATS + 1 + NUM_SEATS;
+	yOfBlock += padding;
+
+	xOfBlock = margin;
+	weightMultiplier = 25.00f;
+
+	{
+		int w = NUM_VIEW_SETS * NUM_CARDS;
+		int h = ACTION_SIZE;
+		const auto& tt = correlationTensor2.to(torch::kCPU, torch::kFloat);
+		const auto& ibb = inputBiasTensor.to(torch::kCPU, torch::kFloat);
+		const auto& obb = outputBiasTensor.to(torch::kCPU, torch::kFloat);
+		float _boundsCheck = *(tt[h - 1][w - 1].data_ptr<float>());
+		float _boundsCheckI = *(ibb[1 + NUM_SEATS][w - 1].data_ptr<float>());
+		float _boundsCheckO = *(obb[h - 1].data_ptr<float>());
+		float* weight = tt.data_ptr<float>();
+		float* inputBias = ibb[1 + NUM_SEATS].data_ptr<float>();
+		float* outputBias = obb.data_ptr<float>();
+		for (int y = 0; y < h; y++)
+		{
+			bias[y] = 0;
+			for (int x = 0; x < w; x++)
+			{
+				int xx = xOfBlock + (x / NUM_CARDS) * (NUM_CARDS + separation)
+					+ (x % NUM_CARDS);
+				int yy = yOfBlock + (y / NUM_CARDS) * (NUM_CARDS + separation)
+					+ (y % NUM_CARDS);
+				float v = 0;
+				if (inputBias[x] > 0.00001f)
+				{
+					v = (weight[y * w + x] / inputBias[x])
+						- (outputBias[y] / std::max(1, totalTurnsPlayed));
+				}
+				bias[y] += v;
+				uint8_t pix = paletteIndexFromValue(v, weightMultiplier);
+				histogram[pix] += 1;
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * SCAN_BITDEPTH);
+			}
+			bias[y] = bias[y] / w;
+		}
+		xOfBlock += (w / NUM_CARDS) * (NUM_CARDS + separation);
+	}
+
+	{
+		int h = ACTION_SIZE;
+		for (int y = 0; y < h; y += 1)
+		{
+			float v = bias[y];
+			uint8_t pix = paletteIndexFromValue(v, weightMultiplier);
+			histogram[pix] += 1;
+			for (int x = 0; x < widthOfBias; x++)
+			{
+				int xx = xOfBlock + x;
+				int yy = yOfBlock + (y / NUM_CARDS) * (NUM_CARDS + separation)
+					+ (y % NUM_CARDS);
+				int i = yy * imagew + xx;
+				int part = (pixelsPerByte - 1) - (i % pixelsPerByte);
+				data[i / pixelsPerByte] |=
+					(pix & mask) << (part * SCAN_BITDEPTH);
+			}
+		}
+		xOfBlock += widthOfBias + padding;
+	}
+
+	yOfBlock += ACTION_SIZE + (ACTION_SIZE / NUM_CARDS) * separation;
+	yOfBlock += padding;
 
 	if (heightOfGradient > 3)
 	{

@@ -1176,7 +1176,7 @@ void Trainer::saveBrains()
 		for (size_t i = 0; i < NUM_BRAINS_PER_PERSONALITY; i++)
 		{
 			auto& brain = _brainsPerPersonality[p][i];
-			if (brain->numGames > 0)
+			if (brain && brain->numGames > 0)
 			{
 				std::string name;
 				name += TrainingBrain::personalityName(brain->personality);
@@ -1212,10 +1212,14 @@ void Trainer::saveBrains()
 	}
 }
 
-void Trainer::resume(std::string session, size_t round)
+void Trainer::resume(std::string session, int round)
 {
 	std::string folder = BRAIN_OUTPUT_FOLDER "/" + session;
 	std::string filename = folder + "/round" + std::to_string(round) + ".txt";
+	if (ROUNDS_BETWEEN_SAVES > 1 && ((round + 1) % ROUNDS_BETWEEN_SAVES) == 0)
+	{
+		filename = folder + "/round" + std::to_string(round + 1) + ".txt";
+	}
 
 	std::ifstream file(filename);
 	if (!file)
